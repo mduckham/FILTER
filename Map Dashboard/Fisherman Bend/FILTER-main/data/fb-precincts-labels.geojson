@@ -1,4 +1,0 @@
-{
-	"type":"FeatureCollection",
-	"features":[
-		{"type":"Feature","properties":{"precinctname":"Employment Precinct"},"geometry":{"coordinates":[144.91568808518355,-37.825560188853856],"type":"Point"}},{"type":"Feature","properties":{"precinctname":"Lorimer"},"geometry":{"coordinates":[144.93636391787436,-37.82411183575897],"type":"Point"}},{"type":"Feature","properties":{"precinct-name":"Montague"},"geometry":{"coordinates":[144.9504179324499,-37.83020034463104],"type":"Point"}},{"type":"Feature","properties":{"precinctname":"Sandridge"},"geometry":{"coordinates":[144.93883011541112,-37.828820461240106],"type":"Point"}},{"type":"Feature","properties":{"precinctname":"Wirraway"},"geometry":{"coordinates":[144.9247027498643,-37.831672598340035],"type":"Point"}}]}
