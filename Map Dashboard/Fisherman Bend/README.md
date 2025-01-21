@@ -6,3 +6,9 @@
 
 - Cd to the directory (/Fisherman Bend) 
 - yarn react-scripts start (This will lunch a localhost on one port)
+
+### components folder
+- All scripts are located in <em>src/components</em> folder which includes map js and css files.
+
+### data folder
+- <em>public/data</em> includes all .Geojson files ob webmap dashboard.
