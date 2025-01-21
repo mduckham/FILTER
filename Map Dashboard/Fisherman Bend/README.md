@@ -11,4 +11,4 @@
 - All scripts are located in <em>src/components</em> folder which includes map js and css files.
 
 ### data folder
-- <em>public/data</em> includes all .Geojson files ob webmap dashboard.
+- <em>public/data</em> includes all .geojson files on webmap dashboard.
