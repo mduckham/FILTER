@@ -11,10 +11,10 @@ export default function Map() {
     'FishermansBendTrees-layer': true,
     'fb-mb-2021-layer': true,
     'fb-precincts-labels-layer': true,
-    'fb-sa1-2016-layer': true,
+    'fb-sa1-2016-layer': false,
     'fb-sa1-2021-layer': true,
-    'fb-sold-price-sa1-2017-layer': true,
-    'fb-worker-commute-distance-layer': true,
+    'fb-sold-price-sa1-2017-layer': false,
+    'fb-worker-commute-distance-layer': false,
   });
 
   const lng = 144.920019;
@@ -41,22 +41,22 @@ export default function Map() {
           source: 'fb-precincts',
           data: '/data/fb-precincts.geojson',
           type: 'fill',
-          paint: { 'fill-color': '#088', 'fill-opacity': 0.5 },
+          paint: { 'fill-color': '#088', 'fill-opacity': 0.5},
         },
         {
           id: 'FishermansBendTrees-layer',
-          source: 'FishermansBendTrees',
+          source: 'Fishermans Bend Trees',
           data: '/data/Fishermans Bend Trees.geojson',
           type: 'circle',
           paint: {
-            'circle-color': '#00091a',
-            'circle-radius': 4,
+            'circle-color': '#229922',
+            'circle-radius': 5,
             'circle-opacity': 0.8,
           },
         },
         {
           id: 'fb-mb-2021-layer',
-          source: 'fb-mb-2021',
+          source: 'Fishermans Bend mesh blocks (2021)',
           data: '/data/fb-mb-2021-WGS84.geojson',
           type: 'fill',
           paint: { 'fill-color': '#FFD700', 'fill-opacity': 0.5 },
@@ -68,6 +68,7 @@ export default function Map() {
           data: '/data/fb-sa1-2016-WGS84.geojson',
           type: 'fill',
           paint: { 'fill-color': '#1E90FF', 'fill-opacity': 0.5 },
+          layout: {visibility: 'none'},
         },
         {
           id: 'fb-sa1-2021-layer',
@@ -77,11 +78,19 @@ export default function Map() {
           paint: { 'fill-color': '#FF69B4', 'fill-opacity': 0.5 },
         },
         {
+          id: 'fb-sa1-2021-outline',
+          source: 'fb-sa1-2021-outline',
+          data: '/data/fb-sa1-2021-WGS84.geojson',
+          type: 'line',
+          paint: { 'line-color': '#222222', 'line-opacity': 1, 'line-width': 1 },
+        },
+        {
           id: 'fb-sold-price-sa1-2017-layer',
           source: 'fb-sold-price-sa1-2017',
           data: '/data/fb-sold-price-sa1-2017-WGS84.geojson',
           type: 'fill',
           paint: { 'fill-color': '#8A2BE2', 'fill-opacity': 0.5 },
+          layout: {visibility: 'none'},
         },
         {
           id: 'fb-worker-commute-distance-layer',
@@ -89,6 +98,7 @@ export default function Map() {
           data: '/data/fb-worker-commute-distance-sa2-WGS84.geojson',
           type: 'fill',
           paint: { 'fill-color': '#FFA500', 'fill-opacity': 0.5 },
+          layout: {visibility: 'none'},
         },
         {
           id: 'fb-precincts-labels-layer',
@@ -115,7 +125,7 @@ export default function Map() {
           type: type,
           source: source,
           paint: paint,
-          layout: { visibility: 'visible', ...layout },
+          layout: { ...layout },
         });
       });
     });
