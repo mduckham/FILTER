@@ -14,4 +14,4 @@
 ### Data folder
 - the folder `public/data` includes all .Geojson files for the webmap dashboard.
 
-![Screenshot 2025-01-21 at 12 13 00](https://github.com/user-attachments/assets/3edf2309-a2ac-4e82-ae0c-f2f7d0782808)
+![image](https://github.com/user-attachments/assets/47707e96-a2a5-4675-b8eb-0f8e17f23a6f)
