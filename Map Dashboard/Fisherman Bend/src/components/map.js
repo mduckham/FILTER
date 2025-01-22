@@ -8,11 +8,14 @@ export default function Map() {
   const map = useRef(null);
   const [layerVisibility, setLayerVisibility] = useState({
     'fb-precincts-layer': true,
-    'FishermansBendTrees-layer': true,
-    'fb-mb-2021-layer': true,
+    'fb-precincts-outline': true,
+    'FishermansBendTrees-layer': false,
+    'fb-mb-2021-layer': false,
+    'fb-mb-2021-outline': false,
     'fb-precincts-labels-layer': true,
     'fb-sa1-2016-layer': false,
     'fb-sa1-2021-layer': true,
+    'fb-sa1-2021-outline': true,
     'fb-sold-price-sa1-2017-layer': false,
     'fb-worker-commute-distance-layer': false,
   });
@@ -42,6 +45,15 @@ export default function Map() {
           data: '/data/fb-precincts.geojson',
           type: 'fill',
           paint: { 'fill-color': '#088', 'fill-opacity': 0.5},
+          layout: {visibility: 'visible'},
+        },
+        {
+          id: 'fb-precincts-outline',
+          source: 'fb-precincts-outline',
+          data: '/data/fb-precincts.geojson',
+          type: 'line',
+          paint: { 'line-color': '#022', 'line-opacity': 0.8, 'line-width': 1},
+          layout: {visibility: 'visible'},
         },
         {
           id: 'FishermansBendTrees-layer',
@@ -53,15 +65,24 @@ export default function Map() {
             'circle-radius': 5,
             'circle-opacity': 0.8,
           },
+          layout: {visibility: 'none'},
         },
         {
           id: 'fb-mb-2021-layer',
-          source: 'Fishermans Bend mesh blocks (2021)',
+          source: 'fb-mb-2021-layer',
           data: '/data/fb-mb-2021-WGS84.geojson',
           type: 'fill',
           paint: { 'fill-color': '#FFD700', 'fill-opacity': 0.5 },
+          layout: {visibility: 'none'},
         },
-        
+        {
+          id: 'fb-mb-2021-outline',
+          source: 'fb-mb-2021-outline',
+          data: '/data/fb-mb-2021-WGS84.geojson',
+          type: 'line',
+          paint: { 'line-color': '#022', 'line-opacity': 0.8, 'line-width': 1},
+          layout: {visibility: 'none'},
+        },
         {
           id: 'fb-sa1-2016-layer',
           source: 'fb-sa1-2016',
@@ -76,6 +97,7 @@ export default function Map() {
           data: '/data/fb-sa1-2021-WGS84.geojson',
           type: 'fill',
           paint: { 'fill-color': '#FF69B4', 'fill-opacity': 0.5 },
+          layout: {visibility: 'visible'},
         },
         {
           id: 'fb-sa1-2021-outline',
@@ -83,6 +105,7 @@ export default function Map() {
           data: '/data/fb-sa1-2021-WGS84.geojson',
           type: 'line',
           paint: { 'line-color': '#222222', 'line-opacity': 1, 'line-width': 1 },
+          layout: {visibility: 'visible'},
         },
         {
           id: 'fb-sold-price-sa1-2017-layer',
@@ -108,6 +131,7 @@ export default function Map() {
           layout: {
             'text-field': ['get', 'precinctname'], 
             'text-size': 12,
+            'visibility': 'visible',
           },
           paint: { 'text-color': '#000000' },
         },
@@ -145,7 +169,7 @@ export default function Map() {
     <div className="map-wrap">
       <div ref={mapContainer} className="map" />
       <div className="layer-control">
-        <h4>Fisherman Bend Layers</h4>
+        <h4>FILTER Layers</h4>
         {Object.keys(layerVisibility).map((layerId) => (
           <div key={layerId}>
             <input
