@@ -152,6 +152,9 @@ export default function Map() {
           layout: { ...layout },
         });
       });
+
+      // Update paint for precincts layer
+      map.current.setPaintProperty('fb-precincts-layer','fill-color', ['match', ['get', 'name'], 'Employment Precinct', '#FF0000', 'Lorimer', '#0000FF', 'Montague', '#00FFFF', 'Sandridge', '#FF5A00', 'Wirraway', '#00FF00', '#339933'])
     });
   }, [lng, lat, zoom]);
 
