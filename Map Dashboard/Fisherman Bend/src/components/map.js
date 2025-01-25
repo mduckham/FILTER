@@ -31,7 +31,7 @@ export default function Map() {
 
     map.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: `https://api.maptiler.com/maps/streets-v2/style.json?key=${API_KEY}`, // Replace with your MapTiler API key
+      style: `https://basemaps.cartocdn.com/gl/positron-gl-style/style.json`, // Replace with your MapTiler API key
       center: [lng, lat],
       zoom: zoom,
     });
