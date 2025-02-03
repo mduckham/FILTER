@@ -7,9 +7,11 @@
 
 See: [ABS downloads](https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs-edition-3/jul2021-jun2026/access-and-downloads/allocation-files)
 
-### FILTER created data
-- [Fishermans Bend rough precinct boundaries](data/fb-precincts.geojson)
+### Precinct boundary data
+- [Fishermans Bend official precinct boundary Shapefiles](data/PrecinctShapefiles)
+- [Fishermans Bend official precinct geojson boundaries](data/fb-precincts-official.geojson)
 - [Fishermans Bend precinct names](data/fb-precincts-labels.geojson)
+- [Fishermans Bend rough precinct boundaries](data/fb-precincts.geojson) (deprecated, official boundaries above)
 
 Note: Approximate boundaries, traced manually from the [Fishermans Bend Framework](https://www.fishermansbend.vic.gov.au/__data/assets/pdf_file/0020/35093/Fishermans-Bend-Framework.pdf)
 
