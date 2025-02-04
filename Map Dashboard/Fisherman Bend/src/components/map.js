@@ -42,7 +42,7 @@ export default function Map() {
         {
           id: 'fb-precincts-layer',
           source: 'fb-precincts',
-          data: '/data/fb-precincts.geojson',
+          data: '/data/fb-precincts-official.geojson',
           type: 'fill',
           paint: { 'fill-color': '#088', 'fill-opacity': 0.5},
           layout: {visibility: 'visible'},
@@ -50,7 +50,7 @@ export default function Map() {
         {
           id: 'fb-precincts-outline',
           source: 'fb-precincts-outline',
-          data: '/data/fb-precincts.geojson',
+          data: '/data/fb-precincts-official.geojson',
           type: 'line',
           paint: { 'line-color': '#022', 'line-opacity': 0.8, 'line-width': 1},
           layout: {visibility: 'visible'},
