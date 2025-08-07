@@ -15,7 +15,7 @@
 - the folder `public/data` includes all .Geojson files for the webmap dashboard.
 
 
-## API Keys for LLM and MapTiler 
+### API Keys for LLM and MapTiler 
 - Provide your Gemini API key and MapTiler API key in the `.env.local` file. 
 
 ![alt text](image-2.png)
