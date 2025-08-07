@@ -12,8 +12,8 @@ const Legend = ({ title, items }) => {
   return (
     <div style={{
       position: 'absolute',
-      bottom: '2rem',
-      right: '1rem',
+      bottom: '1rem',
+      right: '0rem',
       backgroundColor: 'white',
       padding: '1rem',
       borderRadius: '0.5rem',
@@ -50,16 +50,17 @@ export default function Map() {
   const [indicators, setIndicators] = useState([]);
   const [selectedIndicator, setSelectedIndicator] = useState(null);
   const [showIndicators, setShowIndicators] = useState(false);
-  
+  const [panelFocus, setPanelFocus] = useState(null);
+
   // State for the LLM description
   const [dynamicDescription, setDynamicDescription] = useState('');
   const [isDescriptionLoading, setIsDescriptionLoading] = useState(false);
 
-  // Define panel widths for padding calculation
-  const leftPanelWidth = 288; // Width of the search panel
-  const rightPanelWidth = 320; // Width of the text explorer panel
+  // Define panel widths
+  const leftPanelWidth = 288;
+  const rightPanelWidth = 175;
 
-  // Data for the Legends (Updated to match new stops)
+  // --- Data for the Legends (Ensure this is complete) ---
   const legendData = {
     Employment: {
       title: 'Employment (Total)',
@@ -69,10 +70,6 @@ export default function Map() {
       title: 'Education (Total)',
       items: [ { color: '#fee5d9', label: '0 - 100' }, { color: '#fcbba1', label: '101 - 200' }, { color: '#fc9272', label: '201 - 300' }, { color: '#fb6a4a', label: '301 - 400' }, { color: '#ef3b2c', label: '401 - 500' }, { color: '#cb181d', label: '> 500' } ]
     },
-    // 'Place of Birth': {
-    //   title: 'Place of Birth (Total)',
-    //   items: [ { color: '#feedde', label: '0 - 500' }, { color: '#fdd0a2', label: '501 - 1000' }, { color: '#fdae6b', label: '1001 - 1500' }, { color: '#fd8d3c', label: '1501 - 2000' }, { color: '#f16913', label: '2001 - 2500' }, { color: '#d94801', label: '> 2500' } ]
-    // },
     Income: {
         title: 'Income (Total)',
         items: [ { color: '#fcfbfd', label: '0 - 100' }, { color: '#efedf5', label: '101 - 200' }, { color: '#dadaeb', label: '201 - 300' }, { color: '#bcbddc', label: '301 - 400' }, { color: '#9e9ac8', label: '401 - 500' }, { color: '#807dba', label: '501 - 600' }, { color: '#6a51a3', label: '601 - 700' }, { color: '#54278f', label: '701 - 800' }, { color: '#3f007d', label: '> 800' } ]
@@ -83,10 +80,10 @@ export default function Map() {
     }
   };
 
+  // --- FIX: Ensure this object is fully defined and not empty ---
   const indicatorConfig = {
     Employment: { path: '/data/employment-fb-sa1.geojson', property: 'employment-VIC_Total' },
     Education: { path: '/data/education-fb-sa1.geojson', property: 'Education-VIC_Total' },
-    // 'Place of Birth': { path: '/data/POB-fb-sa1.geojson', property: 'POB-VIC1_Total' },
     Income: { path: '/data/income-fb-sa1.geojson', property: 'Income-VIC1_Total' },
     Occupation: { path: '/data/occupation-fb-sa1.geojson', property: 'Occupation-VIC_Total' }
   };
@@ -122,7 +119,6 @@ export default function Map() {
       const layers = [
         { id: 'employment-layer', indicatorName: 'Employment', source: 'employment-data-source', property: indicatorConfig.Employment.property, colors: legendData.Employment.items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500] },
         { id: 'education-layer', indicatorName: 'Education', source: 'education-data-source', property: indicatorConfig.Education.property, colors: legendData.Education.items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500]  },
-        // { id: 'pob-layer', indicatorName: 'Place of Birth', source: 'pob-data-source', property: indicatorConfig['Place of Birth'].property, colors: legendData['Place of Birth'].items.map(i => i.color), stops: [0, 500, 1000, 1500, 2000, 2500] },
         { id: 'income-layer', indicatorName: 'Income', source: 'income-data-source', property: indicatorConfig.Income.property, colors: legendData.Income.items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500, 600, 700, 800] },
         { id: 'occupation-layer', indicatorName: 'Occupation', source: 'occupation-data-source', property: indicatorConfig.Occupation.property, colors: legendData.Occupation.items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500, 600, 700, 800] }
       ];
@@ -130,16 +126,12 @@ export default function Map() {
       layers.forEach(layer => {
         const colorStops = layer.stops.flatMap((stop, i) => [stop, layer.colors[i] || layer.colors[layer.colors.length - 1]]);
         map.current.addLayer({
-          id: layer.id,
-          type: 'fill',
-          source: layer.source,
-          layout: { visibility: 'none' },
+          id: layer.id, type: 'fill', source: layer.source, layout: { visibility: 'none' },
           paint: {
             'fill-color': ['interpolate', ['linear'], ['to-number', ['get', layer.property]], ...colorStops],
             'fill-opacity': 0.6
           }
         });
-
         map.current.on('click', layer.id, (e) => {
           const feature = e.features[0];
           if (feature) {
@@ -152,69 +144,67 @@ export default function Map() {
               .addTo(map.current);
           }
         });
-        
         map.current.on('mouseenter', layer.id, () => { map.current.getCanvas().style.cursor = 'pointer'; });
         map.current.on('mouseleave', layer.id, () => { map.current.getCanvas().style.cursor = ''; });
       });
 
       map.current.addLayer({
-        id: 'base-outline-layer',
-        type: 'line',
-        source: 'base-outline-data-source',
-        paint: { 'line-color': '#444', 'line-width': 1 }
+        id: 'base-outline-layer', type: 'line', source: 'base-outline-data-source',
+        paint: { 'line-color': '#444', 'line-width': 0.2 }
       });
       
       map.current.addLayer({
-          id: 'precincts-outline-layer',
-          type: 'line',
-          source: 'precincts-data-source',
+        id: 'precincts-fill-layer', type: 'fill', source: 'precincts-data-source',
+        paint: { 'fill-color': '#0868ac', 'fill-opacity': 0.15 }
+      });
+      map.current.addLayer({
+        id: 'precincts-shadow-layer', type: 'line', source: 'precincts-data-source',
+        paint: { 'line-color': 'rgba(0, 0, 0, 0.4)', 'line-width': 3, 'line-translate': [2, 2], 'line-blur': 2 }
+      });
+      map.current.addLayer({
+          id: 'precincts-outline-layer', type: 'line', source: 'precincts-data-source',
           paint: { 'line-color': '#0868ac', 'line-width': 2.5, 'line-opacity': 0.9 }
       });
+
+      map.current.on('click', 'precincts-fill-layer', (e) => {
+        const feature = e.features[0];
+        if (!feature || !feature.properties.name) return;
+        const precinctName = feature.properties.name;
+        setPanelFocus({ type: 'precinct', name: precinctName });
+      });
+
+      map.current.on('mouseenter', 'precincts-fill-layer', () => { map.current.getCanvas().style.cursor = 'pointer'; });
+      map.current.on('mouseleave', 'precincts-fill-layer', () => { map.current.getCanvas().style.cursor = ''; });
+
     });
 
-    return () => {
-      if (map.current) {
-        map.current.remove();
-        map.current = null;
-      }
-    };
+    return () => { if (map.current) { map.current.remove(); map.current = null; } };
   }, []);
 
-  // --- Function to adjust map bounds with padding ---
   const adjustMapBounds = () => {
     if (!map.current) return;
-    const bounds = [
-      [144.888484, -37.853104], // Southwest corner
-      [144.956026, -37.814502]  // Northeast corner
-    ];
+    const bounds = [ [144.890, -37.850], [144.948, -37.816] ];
     map.current.fitBounds(bounds, {
-      padding: {
-        top: 20,
-        bottom: 20,
-        left: leftPanelWidth + 20,
-        right: rightPanelWidth + 20
-      }
+      padding: { top: 20, bottom: 20, left: leftPanelWidth, right: rightPanelWidth },
+      duration: 2000, essential: true
     });
   };
 
-  // --- useEffect for handling window resize ---
   useEffect(() => {
     function debounce(fn, ms) {
       let timer;
-      return function(...args) {
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          timer = null;
-          fn.apply(this, args);
-        }, ms);
-      };
+      return function(...args) { clearTimeout(timer); timer = setTimeout(() => { fn.apply(this, args); }, ms); };
     }
-    const debouncedAdjustBounds = debounce(adjustMapBounds, 150);
-    window.addEventListener('resize', debouncedAdjustBounds);
-    return () => window.removeEventListener('resize', debouncedAdjustBounds);
+    const debouncedAdjustBounds = () => {
+      if (!map.current) return;
+      const bounds = [ [144.890, -37.850], [144.948, -37.816] ];
+      map.current.fitBounds(bounds, { padding: { top: 20, bottom: 20, left: leftPanelWidth, right: rightPanelWidth }, duration: 0 });
+    };
+    const debouncedResizeListener = debounce(debouncedAdjustBounds, 150);
+    window.addEventListener('resize', debouncedResizeListener);
+    return () => window.removeEventListener('resize', debouncedResizeListener);
   }, []);
 
-  // --- useEffect to Toggle Layer Visibility ---
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded()) return;
     const allLayerIds = ['employment-layer', 'education-layer', 'pob-layer', 'income-layer', 'occupation-layer'];
@@ -231,87 +221,100 @@ export default function Map() {
     });
   }, [selectedIndicator]);
   
-  // --- useEffect to generate LLM description with Caching ---
   useEffect(() => {
-    if (!selectedIndicator) {
+    if (!panelFocus) {
       setDynamicDescription('');
-      return;
-    }
-    
-    if (descriptionCache.current[selectedIndicator]) {
-      setDynamicDescription(descriptionCache.current[selectedIndicator]);
       setIsDescriptionLoading(false);
       return;
     }
 
-    const generateLLMDescription = async () => {
-      setIsDescriptionLoading(true);
-      setDynamicDescription('');
-      const config = indicatorConfig[selectedIndicator];
-      if (!config) {
-        setIsDescriptionLoading(false);
-        return;
-      }
+    const generateDescription = async () => {
+        setIsDescriptionLoading(true);
+        setDynamicDescription('');
 
-      try {
-        const response = await fetch(config.path);
-        const geojsonData = await response.json();
-        let minFeature = null, maxFeature = null, sum = 0, count = 0;
+        const { type, name } = panelFocus;
+        const cacheKey = `${type}_${name}`;
 
-        geojsonData.features.forEach(feature => {
-          const value = Number(feature.properties[config.property]);
-          if (!isNaN(value)) {
-            if (minFeature === null || value < Number(minFeature.properties[config.property])) minFeature = feature;
-            if (maxFeature === null || value > Number(maxFeature.properties[config.property])) maxFeature = feature;
-            sum += value;
-            count++;
-          }
-        });
-        
-        if (count === 0) {
-            setDynamicDescription('No valid data found for a description.');
+        if (descriptionCache.current[cacheKey]) {
+            setDynamicDescription(descriptionCache.current[cacheKey]);
             setIsDescriptionLoading(false);
             return;
         }
-
-        const average = (sum / count).toFixed(2);
-        const minValue = Number(minFeature.properties[config.property]);
-        const maxValue = Number(maxFeature.properties[config.property]);
-        const minRegion = minFeature.properties['SA1_CODE21'];
-        const maxRegion = maxFeature.properties['SA1_CODE21'];
-
-        const prompt = `You are a concise data analyst for a public-facing dashboard. Based on the following data for the "${selectedIndicator}" indicator in Melbourne's inner suburbs, write a short, engaging summary (around 50-70 words). Do not just list the numbers; provide a brief insight into what the data shows (e.g., "a significant disparity," "a wide range," "a concentration of..."). Key Statistics: - Highest value: ${maxValue.toLocaleString()} (in SA1 area ${maxRegion}) - Lowest value: ${minValue.toLocaleString()} (in SA1 area ${minRegion}) - Average value across all areas: ${Number(average).toLocaleString()}`;
-
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-        const result = await model.generateContent(prompt);
-        const llmResponse = await result.response;
-        const text = llmResponse.text();
         
-        descriptionCache.current[selectedIndicator] = text;
-        setDynamicDescription(text);
+        try {
+            let prompt = '';
+            if (type === 'indicator') {
+                const config = indicatorConfig[name];
 
-      } catch (error) {
-        console.error("Error generating LLM description:", error);
-        if (error.message && error.message.includes('429')) {
-             setDynamicDescription('Daily free API quota exceeded. Please try again tomorrow or upgrade to a paid plan.');
-        } else {
-             setDynamicDescription('An error occurred while generating the description.');
+                if (!config || !config.property) {
+                    console.error(`Invalid or missing configuration for indicator: ${name}`);
+                    throw new Error(`Configuration is missing for the "${name}" indicator.`);
+                }
+
+                const response = await fetch(config.path);
+                const geojsonData = await response.json();
+                let minFeature = null, maxFeature = null, sum = 0, count = 0;
+
+                geojsonData.features.forEach(feature => {
+                    if (feature && feature.properties && feature.properties.hasOwnProperty(config.property)) {
+                        const value = Number(feature.properties[config.property]);
+                        if (!isNaN(value)) {
+                            if (minFeature === null || value < Number(minFeature.properties[config.property])) minFeature = feature;
+                            if (maxFeature === null || value > Number(maxFeature.properties[config.property])) maxFeature = feature;
+                            sum += value;
+                            count++;
+                        }
+                    }
+                });
+                
+                if (count === 0) {
+                    throw new Error(`No valid data found for the "${name}" indicator.`);
+                }
+
+                const average = (sum / count).toFixed(2);
+                const minValue = Number(minFeature.properties[config.property]);
+                const maxValue = Number(maxFeature.properties[config.property]);
+                const minRegion = minFeature.properties['SA1_CODE21'];
+                const maxRegion = maxFeature.properties['SA1_CODE21'];
+                prompt = `You are a concise data analyst for a public-facing dashboard. Based on the following data for the "${name}" indicator in Melbourne's inner suburbs, write a short, engaging summary (around 50-70 words). Do not just list the numbers; provide a brief insight into what the data shows (e.g., "a significant disparity," "a wide range," "a concentration of..."). Key Statistics: - Highest value: ${maxValue.toLocaleString()} (in SA1 area ${maxRegion}) - Lowest value: ${minValue.toLocaleString()} (in SA1 area ${minRegion}) - Average value across all areas: ${Number(average).toLocaleString()}`;
+            
+            } else if (type === 'precinct') {
+                prompt = `You are a concise urban planning analyst for a public-facing dashboard. Write a short, engaging summary (around 50-70 words) about the "${name}" urban renewal precinct in Melbourne. Describe its key vision, purpose, or main characteristics (e.g., focus on innovation, residential development, employment hub, etc.).`;
+            }
+
+            if (prompt) {
+                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+                const result = await model.generateContent(prompt);
+                const text = result.response.text();
+                descriptionCache.current[cacheKey] = text;
+                setDynamicDescription(text);
+            }
+        } catch (error) {
+            console.error(`Error generating description for ${name}:`, error);
+            const errorMessage = error.message.includes('429') 
+                ? 'Daily free API quota exceeded. Please try again tomorrow or upgrade to a paid plan.'
+                : `An error occurred while generating the description: ${error.message}`;
+            setDynamicDescription(errorMessage);
+        } finally {
+            setIsDescriptionLoading(false);
         }
-      } finally {
-        setIsDescriptionLoading(false);
-      }
     };
-    generateLLMDescription();
-  }, [selectedIndicator]);
 
-  // --- UI Handlers ---
+    generateDescription();
+  }, [panelFocus]);
+
   const handleSearchClick = () => {
     setIndicators(['Employment', 'Education', 'Income', 'Occupation']);
     setShowIndicators(true);
   };
-  const handleIndicatorSelect = (indicator) => setSelectedIndicator(prev => (prev === indicator ? null : indicator));
 
-  // --- Component Render ---
+  const handleIndicatorSelect = (indicator) => {
+    const isCurrentlySelected = selectedIndicator === indicator;
+    const newIndicator = isCurrentlySelected ? null : indicator;
+    setSelectedIndicator(newIndicator);
+    setPanelFocus(newIndicator ? { type: 'indicator', name: newIndicator } : null);
+  };
+
   return (
     <div style={{ display: 'flex', width: '100%', height: 'calc(100vh - 78px)' }}>
       {/* Map container */}
@@ -341,9 +344,9 @@ export default function Map() {
       </div>
       {/* Text Explorer Panel */}
       <div style={{ width: '320px', backgroundColor: '#f8f9fa', padding: '1.5rem', borderLeft: '1px solid #dee2e6', overflowY: 'auto' }}>
-        {selectedIndicator ? (
+        {panelFocus ? (
           <div>
-            <h4 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#495057', marginBottom: '0.75rem' }}>{selectedIndicator}</h4>
+            <h4 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#495057', marginBottom: '0.75rem' }}>{panelFocus.name}</h4>
             {isDescriptionLoading ? (
               <p style={{ fontSize: '0.95rem', color: '#6c757d', fontStyle: 'italic' }}>🤖 Generating AI description...</p>
             ) : (
@@ -351,7 +354,7 @@ export default function Map() {
             )}
           </div>
         ) : (
-          <p style={{ fontSize: '0.95rem', color: '#6c757d', fontStyle: 'italic' }}>Select an indicator from the panel on the left to see its description.</p>
+          <p style={{ fontSize: '0.95rem', color: '#6c757d', fontStyle: 'italic' }}>Select an indicator from the left panel or click on a precinct on the map to see its description.</p>
         )}
       </div>
     </div>
