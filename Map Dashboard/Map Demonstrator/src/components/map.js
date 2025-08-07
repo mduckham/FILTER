@@ -1,13 +1,52 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // --- LLM API Setup ---
-// IMPORTANT: Store your API key in an environment variable.
 const genAI = new GoogleGenerativeAI(process.env.REACT_APP_GEMINI_API_KEY);
 
-// --- Legend Component ---
+// --- START: INTERACTIVE DESCRIPTION COMPONENT ---
+// This component finds and styles specified keywords in a block of text.
+const InteractiveDescription = ({ text, keywords, colors, onKeywordHover }) => {
+  const parts = useMemo(() => {
+    if (!text || !keywords.length) {
+      return [text];
+    }
+    const regex = new RegExp(`(${keywords.join('|')})`, 'gi');
+    return text.split(regex).filter(part => part !== '');
+  }, [text, keywords]);
+
+  return (
+    <p style={{ fontSize: '0.95rem', color: '#6c757d', lineHeight: 1.6 }}>
+      {parts.map((part, index) => {
+        const originalKeyword = keywords.find(kw => kw.toLowerCase() === part.toLowerCase());
+        if (originalKeyword) {
+          return (
+            <strong
+              key={index}
+              style={{
+                color: colors[originalKeyword] || '#000',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                padding: '2px 0',
+                borderBottom: `2px solid ${colors[originalKeyword] || '#000'}`
+              }}
+              onMouseEnter={() => onKeywordHover(originalKeyword)}
+              onMouseLeave={() => onKeywordHover(null)} // Clear hover on exit
+            >
+              {part}
+            </strong>
+          );
+        }
+        return <React.Fragment key={index}>{part}</React.Fragment>;
+      })}
+    </p>
+  );
+};
+// --- END: INTERACTIVE DESCRIPTION COMPONENT ---
+
+// --- START: LEGEND COMPONENT ---
 const Legend = ({ title, items }) => {
   return (
     <div style={{
@@ -38,29 +77,40 @@ const Legend = ({ title, items }) => {
     </div>
   );
 };
+// --- END: LEGEND COMPONENT ---
 
-// --- Map Component ---
+
+// --- START: MAP COMPONENT ---
 export default function Map() {
   const mapContainer = useRef(null);
   const map = useRef(null);
   const descriptionCache = useRef({});
 
-  // State for search and UI
+  // Definitions for interactive text highlighting
+  const PRECINCT_NAMES = ['Montague', 'Sandridge', 'Lorimer', 'Wirraway', 'Employment Precinct'];
+  const PRECINCT_COLORS = {
+    'Montague': '#3498db',
+    'Sandridge': '#e74c3c',
+    'Lorimer': '#2ecc71',
+    'Wirraway': '#f39c12',
+    'Employment Precinct': '#9b59b6'
+  };
+
+  // --- STATE MANAGEMENT ---
   const [searchText, setSearchText] = useState('');
   const [indicators, setIndicators] = useState([]);
   const [selectedIndicator, setSelectedIndicator] = useState(null);
   const [showIndicators, setShowIndicators] = useState(false);
   const [panelFocus, setPanelFocus] = useState(null);
-
-  // State for the LLM description
   const [dynamicDescription, setDynamicDescription] = useState('');
   const [isDescriptionLoading, setIsDescriptionLoading] = useState(false);
+  const [textHoveredPrecinct, setTextHoveredPrecinct] = useState(null);
 
-  // Define panel widths
+  // Panel widths for map padding
   const leftPanelWidth = 288;
   const rightPanelWidth = 175;
 
-  // --- Data for the Legends (Ensure this is complete) ---
+  // --- DATA DEFINITIONS ---
   const legendData = {
     Employment: {
       title: 'Employment (Total)',
@@ -80,7 +130,6 @@ export default function Map() {
     }
   };
 
-  // --- FIX: Ensure this object is fully defined and not empty ---
   const indicatorConfig = {
     Employment: { path: '/data/employment-fb-sa1.geojson', property: 'employment-VIC_Total' },
     Education: { path: '/data/education-fb-sa1.geojson', property: 'Education-VIC_Total' },
@@ -88,7 +137,9 @@ export default function Map() {
     Occupation: { path: '/data/occupation-fb-sa1.geojson', property: 'Occupation-VIC_Total' }
   };
 
-  // --- Main useEffect for Map Initialization ---
+  // --- HOOKS for Map Lifecycle & Effects ---
+
+  // Main Map Initialization
   useEffect(() => {
     if (map.current) return;
     if (!mapContainer.current) return;
@@ -115,7 +166,7 @@ export default function Map() {
         { name: 'precincts', path: '/data/fb-precincts-official-boundary.geojson' },
       ];
       sources.forEach(s => map.current.addSource(`${s.name}-data-source`, { type: 'geojson', data: s.path }));
-      
+
       const layers = [
         { id: 'employment-layer', indicatorName: 'Employment', source: 'employment-data-source', property: indicatorConfig.Employment.property, colors: legendData.Employment.items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500] },
         { id: 'education-layer', indicatorName: 'Education', source: 'education-data-source', property: indicatorConfig.Education.property, colors: legendData.Education.items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500]  },
@@ -138,10 +189,10 @@ export default function Map() {
             const regionName = feature.properties['SA1_CODE21'];
             const value = feature.properties[layer.property];
             const formattedValue = !isNaN(value) ? Number(value).toLocaleString() : 'N/A';
-            new maplibregl.Popup()
-              .setLngLat(e.lngLat)
-              .setHTML(`<div style="font-family: sans-serif; padding: 5px; text-align: left;"><h4 style="margin: 0 0 5px 0; font-weight: bold;">SA1: ${regionName}</h4><strong>${layer.indicatorName}:</strong> ${formattedValue}</div>`)
-              .addTo(map.current);
+            // new maplibregl.Popup()
+            //   .setLngLat(e.lngLat)
+            //   .setHTML(`<div style="font-family: sans-serif; padding: 5px; text-align: left;"><h4 style="margin: 0 0 5px 0; font-weight: bold;">SA1: ${regionName}</h4><strong>${layer.indicatorName}:</strong> ${formattedValue}</div>`)
+            //   .addTo(map.current);
           }
         });
         map.current.on('mouseenter', layer.id, () => { map.current.getCanvas().style.cursor = 'pointer'; });
@@ -152,7 +203,7 @@ export default function Map() {
         id: 'base-outline-layer', type: 'line', source: 'base-outline-data-source',
         paint: { 'line-color': '#444', 'line-width': 0.2 }
       });
-      
+
       map.current.addLayer({
         id: 'precincts-fill-layer', type: 'fill', source: 'precincts-data-source',
         paint: { 'fill-color': '#0868ac', 'fill-opacity': 0.15 }
@@ -171,16 +222,17 @@ export default function Map() {
         if (!feature || !feature.properties.name) return;
         const precinctName = feature.properties.name;
         setPanelFocus({ type: 'precinct', name: precinctName });
+        setTextHoveredPrecinct(null);
       });
 
       map.current.on('mouseenter', 'precincts-fill-layer', () => { map.current.getCanvas().style.cursor = 'pointer'; });
       map.current.on('mouseleave', 'precincts-fill-layer', () => { map.current.getCanvas().style.cursor = ''; });
-
     });
 
     return () => { if (map.current) { map.current.remove(); map.current = null; } };
   }, []);
 
+  // Adjust map bounds on load
   const adjustMapBounds = () => {
     if (!map.current) return;
     const bounds = [ [144.890, -37.850], [144.948, -37.816] ];
@@ -190,6 +242,7 @@ export default function Map() {
     });
   };
 
+  // Adjust map bounds on window resize
   useEffect(() => {
     function debounce(fn, ms) {
       let timer;
@@ -205,11 +258,12 @@ export default function Map() {
     return () => window.removeEventListener('resize', debouncedResizeListener);
   }, []);
 
+  // Toggle visibility of indicator layers
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded()) return;
     const allLayerIds = ['employment-layer', 'education-layer', 'pob-layer', 'income-layer', 'occupation-layer'];
     const selectedLayerId = selectedIndicator ? `${selectedIndicator.toLowerCase().replace(/ /g, '-')}-layer` : null;
-    
+
     if (map.current.getLayer('base-outline-layer')) {
         map.current.setLayoutProperty('base-outline-layer', 'visibility', selectedIndicator ? 'visible' : 'none');
     }
@@ -220,7 +274,8 @@ export default function Map() {
       }
     });
   }, [selectedIndicator]);
-  
+
+  // Generate LLM description when panel focus changes
   useEffect(() => {
     if (!panelFocus) {
       setDynamicDescription('');
@@ -231,7 +286,6 @@ export default function Map() {
     const generateDescription = async () => {
         setIsDescriptionLoading(true);
         setDynamicDescription('');
-
         const { type, name } = panelFocus;
         const cacheKey = `${type}_${name}`;
 
@@ -240,21 +294,17 @@ export default function Map() {
             setIsDescriptionLoading(false);
             return;
         }
-        
+
         try {
             let prompt = '';
             if (type === 'indicator') {
                 const config = indicatorConfig[name];
-
                 if (!config || !config.property) {
-                    console.error(`Invalid or missing configuration for indicator: ${name}`);
                     throw new Error(`Configuration is missing for the "${name}" indicator.`);
                 }
-
                 const response = await fetch(config.path);
                 const geojsonData = await response.json();
                 let minFeature = null, maxFeature = null, sum = 0, count = 0;
-
                 geojsonData.features.forEach(feature => {
                     if (feature && feature.properties && feature.properties.hasOwnProperty(config.property)) {
                         const value = Number(feature.properties[config.property]);
@@ -266,22 +316,16 @@ export default function Map() {
                         }
                     }
                 });
-                
-                if (count === 0) {
-                    throw new Error(`No valid data found for the "${name}" indicator.`);
-                }
-
+                if (count === 0) { throw new Error(`No valid data found for "${name}".`); }
                 const average = (sum / count).toFixed(2);
                 const minValue = Number(minFeature.properties[config.property]);
                 const maxValue = Number(maxFeature.properties[config.property]);
                 const minRegion = minFeature.properties['SA1_CODE21'];
                 const maxRegion = maxFeature.properties['SA1_CODE21'];
                 prompt = `You are a concise data analyst for a public-facing dashboard. Based on the following data for the "${name}" indicator in Melbourne's inner suburbs, write a short, engaging summary (around 50-70 words). Do not just list the numbers; provide a brief insight into what the data shows (e.g., "a significant disparity," "a wide range," "a concentration of..."). Key Statistics: - Highest value: ${maxValue.toLocaleString()} (in SA1 area ${maxRegion}) - Lowest value: ${minValue.toLocaleString()} (in SA1 area ${minRegion}) - Average value across all areas: ${Number(average).toLocaleString()}`;
-            
             } else if (type === 'precinct') {
-                prompt = `You are a concise urban planning analyst for a public-facing dashboard. Write a short, engaging summary (around 50-70 words) about the "${name}" urban renewal precinct in Melbourne. Describe its key vision, purpose, or main characteristics (e.g., focus on innovation, residential development, employment hub, etc.).`;
+                prompt = `You are a concise urban planning analyst. Write a short, engaging summary (around 60-80 words) about the "${name}" precinct within Melbourne's Fishermans Bend. Describe its key vision or main characteristics. If relevant, mention its relationship to the other precincts like Montague, Sandridge, and the Employment Precinct.`;
             }
-
             if (prompt) {
                 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
                 const result = await model.generateContent(prompt);
@@ -291,7 +335,7 @@ export default function Map() {
             }
         } catch (error) {
             console.error(`Error generating description for ${name}:`, error);
-            const errorMessage = error.message.includes('429') 
+            const errorMessage = error.message.includes('429')
                 ? 'Daily free API quota exceeded. Please try again tomorrow or upgrade to a paid plan.'
                 : `An error occurred while generating the description: ${error.message}`;
             setDynamicDescription(errorMessage);
@@ -299,10 +343,26 @@ export default function Map() {
             setIsDescriptionLoading(false);
         }
     };
-
     generateDescription();
   }, [panelFocus]);
 
+  // Update map visual style when a precinct is highlighted from text
+  useEffect(() => {
+    if (!map.current || !map.current.isStyleLoaded()) return;
+
+    const fillOpacity = textHoveredPrecinct
+      ? ['case', ['==', ['get', 'name'], textHoveredPrecinct], 0.75, 0.1]
+      : 0.15;
+    map.current.setPaintProperty('precincts-fill-layer', 'fill-opacity', fillOpacity);
+
+    const highlightFilter = textHoveredPrecinct
+      ? ['==', 'name', textHoveredPrecinct]
+      : ['==', 'name', ''];
+    map.current.setFilter('precincts-highlight-outline-layer', highlightFilter);
+
+  }, [textHoveredPrecinct]);
+
+  // --- UI HANDLERS ---
   const handleSearchClick = () => {
     setIndicators(['Employment', 'Education', 'Income', 'Occupation']);
     setShowIndicators(true);
@@ -313,8 +373,14 @@ export default function Map() {
     const newIndicator = isCurrentlySelected ? null : indicator;
     setSelectedIndicator(newIndicator);
     setPanelFocus(newIndicator ? { type: 'indicator', name: newIndicator } : null);
+    setTextHoveredPrecinct(null);
   };
 
+  const handlePrecinctHover = (precinctName) => {
+    setTextHoveredPrecinct(precinctName);
+  };
+
+  // --- RENDER METHOD ---
   return (
     <div style={{ display: 'flex', width: '100%', height: 'calc(100vh - 78px)' }}>
       {/* Map container */}
@@ -350,7 +416,12 @@ export default function Map() {
             {isDescriptionLoading ? (
               <p style={{ fontSize: '0.95rem', color: '#6c757d', fontStyle: 'italic' }}>🤖 Generating AI description...</p>
             ) : (
-              <p style={{ fontSize: '0.95rem', color: '#6c757d', lineHeight: 1.6 }}>{dynamicDescription}</p>
+              <InteractiveDescription
+                text={dynamicDescription}
+                keywords={PRECINCT_NAMES}
+                colors={PRECINCT_COLORS}
+                onKeywordHover={handlePrecinctHover}
+              />
             )}
           </div>
         ) : (
@@ -360,3 +431,4 @@ export default function Map() {
     </div>
   );
 }
+// --- END: MAP COMPONENT ---
