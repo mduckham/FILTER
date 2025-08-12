@@ -19,3 +19,7 @@
 - Provide your Gemini API key and MapTiler API key in the `.env.local` file. 
 
 ![alt text](image.png)
+
+### Contributors
+- Mohammad Kazemi Beydokhti
+- Matt Duckham
