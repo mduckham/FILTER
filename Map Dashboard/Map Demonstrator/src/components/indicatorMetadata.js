@@ -1,0 +1,37 @@
+const indicatorMetadata = {
+  'Diversity of Education Qualification': {
+    "FB's goals": 'An inclusive and healthy community',
+    "FILTER Indicators": 'Diversity of education qualification',
+    "Note for measurement": 'This measure looks at a specific qualification category and compares that to other qualification categories within the same geography. This entropy measure quantifies the balance of qualification categories using a score.',
+    "Data sources": 'ABS',
+    "Spatial extent": 'Australia',
+    "Spatial scale": 'SA1',
+    "Update frequency": '5 years',
+    "Temporal currency": '2021',
+    "Temporal extent": '1992-2021'
+  },
+  'Diversity of Income': {
+    "FB's goals": 'An inclusive and healthy community',
+    "FILTER Indicators": 'Diversity of income (residents)',
+    "Note for measurement": 'This measure looks at a specific income category and compares that to other income categories within the same geography. This entropy measure quantifies the balance of income categories using a score.',
+    "Data sources": 'ABS',
+    "Spatial extent": 'Australia',
+    "Spatial scale": 'SA1',
+    "Update frequency": '5 years',
+    "Temporal currency": '2021',
+    "Temporal extent": '1992-2021'
+  },
+  'Diversity of Occupations': {
+    "FB's goals": 'An inclusive and healthy community',
+    "FILTER Indicators": 'Diversity of occupations (residents)',
+    "Note for measurement": 'This measure looks at a specific occupation category and compares that to other occupation categories within the same area. This entropy measure quantifies the balance of occupation categories using a score.',
+    "Data sources": 'ABS',
+    "Spatial extent": 'Australia',
+    "Spatial scale": 'SA1',
+    "Update frequency": '5 years',
+    "Temporal currency": '2021',
+    "Temporal extent": '1992-2021'
+  }
+};
+
+export default indicatorMetadata;

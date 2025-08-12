@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import indicatorMetadata from './indicatorMetadata'; // IMPORTED METADATA
 
 // --- LLM API Setup ---
 const genAI = new GoogleGenerativeAI(process.env.REACT_APP_GEMINI_API_KEY);
@@ -9,17 +10,23 @@ const genAI = new GoogleGenerativeAI(process.env.REACT_APP_GEMINI_API_KEY);
 // --- START: INTERACTIVE DESCRIPTION COMPONENT ---
 // This component finds and styles specified keywords in a block of text.
 const InteractiveDescription = ({ text, keywords, colors, onKeywordHover }) => {
-  const parts = useMemo(() => {
-    if (!text || !keywords.length) {
-      return [text];
-    }
-    const regex = new RegExp(`(${keywords.join('|')})`, 'gi');
-    return text.split(regex).filter(part => part !== '');
-  }, [text, keywords]);
+  if (!text) return null;
+
+  // Create a regex that matches either a keyword or a bolded section.
+  // The bold regex part is `\\*\\*.+?\\*\\*` which finds text between two pairs of asterisks.
+  const regex = new RegExp(`(${keywords.join('|')}|\\*\\*.+?\\*\\*)`, 'gi');
+  const parts = text.split(regex).filter(part => part);
 
   return (
     <p style={{ fontSize: '0.95rem', color: '#6c757d', lineHeight: 1.6 }}>
       {parts.map((part, index) => {
+        // First, check if the part is a bolded section.
+        if (part.startsWith('**') && part.endsWith('**')) {
+          // If so, render it as bold text, removing the asterisks.
+          return <strong key={index}>{part.substring(2, part.length - 2)}</strong>;
+        }
+
+        // Next, check if the part is an interactive keyword.
         const originalKeyword = keywords.find(kw => kw.toLowerCase() === part.toLowerCase());
         if (originalKeyword) {
           return (
@@ -33,12 +40,14 @@ const InteractiveDescription = ({ text, keywords, colors, onKeywordHover }) => {
                 borderBottom: `2px solid ${colors[originalKeyword] || '#000'}`
               }}
               onMouseEnter={() => onKeywordHover(originalKeyword)}
-              onMouseLeave={() => onKeywordHover(null)} // Clear hover on exit
+              onMouseLeave={() => onKeywordHover(null)}
             >
               {part}
             </strong>
           );
         }
+
+        // Otherwise, it's just a regular piece of text.
         return <React.Fragment key={index}>{part}</React.Fragment>;
       })}
     </p>
@@ -58,7 +67,7 @@ const Legend = ({ title, items }) => {
       borderRadius: '0.5rem',
       boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
       zIndex: 10,
-      width: '180px'
+      width: '240px'
     }}>
       <h4 style={{ margin: '0 0 0.5rem 0', fontWeight: 'bold' }}>{title}</h4>
       {items.map((item, index) => (
@@ -112,29 +121,24 @@ export default function Map() {
 
   // --- DATA DEFINITIONS ---
   const legendData = {
-    Employment: {
-      title: 'Employment (Total)',
-      items: [ { color: '#edf8e9', label: '0 - 100' }, { color: '#c7e9c0', label: '101 - 200' }, { color: '#a1d99b', label: '201 - 300' }, { color: '#74c476', label: '301 - 400' }, { color: '#31a354', label: '401 - 500' }, { color: '#006d2c', label: '> 500' } ]
-    },
-    Education: {
-      title: 'Education (Total)',
+    'Diversity of Education Qualification': {
+      title: 'Residents with any qualification (Total)',
       items: [ { color: '#fee5d9', label: '0 - 100' }, { color: '#fcbba1', label: '101 - 200' }, { color: '#fc9272', label: '201 - 300' }, { color: '#fb6a4a', label: '301 - 400' }, { color: '#ef3b2c', label: '401 - 500' }, { color: '#cb181d', label: '> 500' } ]
     },
-    Income: {
-        title: 'Income (Total)',
+    'Diversity of Income': {
+        title: 'Residents with any income level (Total)',
         items: [ { color: '#fcfbfd', label: '0 - 100' }, { color: '#efedf5', label: '101 - 200' }, { color: '#dadaeb', label: '201 - 300' }, { color: '#bcbddc', label: '301 - 400' }, { color: '#9e9ac8', label: '401 - 500' }, { color: '#807dba', label: '501 - 600' }, { color: '#6a51a3', label: '601 - 700' }, { color: '#54278f', label: '701 - 800' }, { color: '#3f007d', label: '> 800' } ]
     },
-    Occupation: {
-      title: 'Occupation (Total)',
+    'Diversity of Occupations': {
+      title: 'Residents with any occupations (Total)',
       items: [ { color: '#f7fbff', label: '0 - 100' }, { color: '#deebf7', label: '101 - 200' }, { color: '#c6dbef', label: '201 - 300' }, { color: '#9ecae1', label: '301 - 400' }, { color: '#6baed6', label: '401 - 500' }, { color: '#4292c6', label: '501 - 600' }, { color: '#2171b5', label: '601 - 700' }, { color: '#08519c', label: '701 - 800' }, { color: '#08306b', label: '> 800' } ]
     }
   };
 
   const indicatorConfig = {
-    Employment: { path: '/data/employment-fb-sa1.geojson', property: 'employment-VIC_Total' },
-    Education: { path: '/data/education-fb-sa1.geojson', property: 'Education-VIC_Total' },
-    Income: { path: '/data/income-fb-sa1.geojson', property: 'Income-VIC1_Total' },
-    Occupation: { path: '/data/occupation-fb-sa1.geojson', property: 'Occupation-VIC_Total' }
+    'Diversity of Education Qualification': { path: '/data/education-fb-sa1.geojson', property: 'Education-VIC_Total' },
+    'Diversity of Income': { path: '/data/income-fb-sa1.geojson', property: 'Income-VIC1_Total' },
+    'Diversity of Occupations': { path: '/data/occupation-fb-sa1.geojson', property: 'Occupation-VIC_Total' }
   };
 
   // --- HOOKS for Map Lifecycle & Effects ---
@@ -168,10 +172,9 @@ export default function Map() {
       sources.forEach(s => map.current.addSource(`${s.name}-data-source`, { type: 'geojson', data: s.path }));
 
       const layers = [
-        { id: 'employment-layer', indicatorName: 'Employment', source: 'employment-data-source', property: indicatorConfig.Employment.property, colors: legendData.Employment.items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500] },
-        { id: 'education-layer', indicatorName: 'Education', source: 'education-data-source', property: indicatorConfig.Education.property, colors: legendData.Education.items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500]  },
-        { id: 'income-layer', indicatorName: 'Income', source: 'income-data-source', property: indicatorConfig.Income.property, colors: legendData.Income.items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500, 600, 700, 800] },
-        { id: 'occupation-layer', indicatorName: 'Occupation', source: 'occupation-data-source', property: indicatorConfig.Occupation.property, colors: legendData.Occupation.items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500, 600, 700, 800] }
+        { id: 'diversity-of-education-qualification-layer', indicatorName: 'Diversity of Education Qualification', source: 'education-data-source', property: indicatorConfig['Diversity of Education Qualification'].property, colors: legendData['Diversity of Education Qualification'].items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500]  },
+        { id: 'diversity-of-income-layer', indicatorName: 'Diversity of Income', source: 'income-data-source', property: indicatorConfig['Diversity of Income'].property, colors: legendData['Diversity of Income'].items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500, 600, 700, 800] },
+        { id: 'diversity-of-occupations-layer', indicatorName: 'Diversity of Occupations', source: 'occupation-data-source', property: indicatorConfig['Diversity of Occupations'].property, colors: legendData['Diversity of Occupations'].items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500, 600, 700, 800] }
       ];
 
       layers.forEach(layer => {
@@ -189,10 +192,6 @@ export default function Map() {
             const regionName = feature.properties['SA1_CODE21'];
             const value = feature.properties[layer.property];
             const formattedValue = !isNaN(value) ? Number(value).toLocaleString() : 'N/A';
-            // new maplibregl.Popup()
-            //   .setLngLat(e.lngLat)
-            //   .setHTML(`<div style="font-family: sans-serif; padding: 5px; text-align: left;"><h4 style="margin: 0 0 5px 0; font-weight: bold;">SA1: ${regionName}</h4><strong>${layer.indicatorName}:</strong> ${formattedValue}</div>`)
-            //   .addTo(map.current);
           }
         });
         map.current.on('mouseenter', layer.id, () => { map.current.getCanvas().style.cursor = 'pointer'; });
@@ -203,14 +202,20 @@ export default function Map() {
         id: 'base-outline-layer', type: 'line', source: 'base-outline-data-source',
         paint: { 'line-color': '#444', 'line-width': 0.2 }
       });
+      
+      const precinctColorExpression = ['case'];
+      PRECINCT_NAMES.forEach(name => {
+          precinctColorExpression.push(['==', ['get', 'name'], name], PRECINCT_COLORS[name]);
+      });
+      precinctColorExpression.push('#CCC'); 
 
-      map.current.addLayer({
+     map.current.addLayer({
         id: 'precincts-fill-layer', type: 'fill', source: 'precincts-data-source',
-        paint: { 'fill-color': '#0868ac', 'fill-opacity': 0.15 }
+        paint: { 'fill-color': '#ffffffff', 'fill-opacity': 0.15 }
       });
       map.current.addLayer({
         id: 'precincts-shadow-layer', type: 'line', source: 'precincts-data-source',
-        paint: { 'line-color': 'rgba(0, 0, 0, 0.4)', 'line-width': 3, 'line-translate': [2, 2], 'line-blur': 2 }
+        paint: { 'line-color': 'rgba(0, 0, 0, 0.4)', 'line-width': 7, 'line-translate': [2, 2], 'line-blur': 4 }
       });
       map.current.addLayer({
           id: 'precincts-outline-layer', type: 'line', source: 'precincts-data-source',
@@ -261,7 +266,11 @@ export default function Map() {
   // Toggle visibility of indicator layers
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded()) return;
-    const allLayerIds = ['employment-layer', 'education-layer', 'pob-layer', 'income-layer', 'occupation-layer'];
+    const allLayerIds = [
+        'diversity-of-education-qualification-layer', 
+        'diversity-of-income-layer', 
+        'diversity-of-occupations-layer'
+    ];
     const selectedLayerId = selectedIndicator ? `${selectedIndicator.toLowerCase().replace(/ /g, '-')}-layer` : null;
 
     if (map.current.getLayer('base-outline-layer')) {
@@ -298,34 +307,32 @@ export default function Map() {
         try {
             let prompt = '';
             if (type === 'indicator') {
-                const config = indicatorConfig[name];
-                if (!config || !config.property) {
-                    throw new Error(`Configuration is missing for the "${name}" indicator.`);
+                const metadata = indicatorMetadata[name]; // <-- GET METADATA FOR THE INDICATOR
+
+                if (!metadata) {
+                    throw new Error(`Metadata is missing for the "${name}" indicator.`);
                 }
-                const response = await fetch(config.path);
-                const geojsonData = await response.json();
-                let minFeature = null, maxFeature = null, sum = 0, count = 0;
-                geojsonData.features.forEach(feature => {
-                    if (feature && feature.properties && feature.properties.hasOwnProperty(config.property)) {
-                        const value = Number(feature.properties[config.property]);
-                        if (!isNaN(value)) {
-                            if (minFeature === null || value < Number(minFeature.properties[config.property])) minFeature = feature;
-                            if (maxFeature === null || value > Number(maxFeature.properties[config.property])) maxFeature = feature;
-                            sum += value;
-                            count++;
-                        }
-                    }
-                });
-                if (count === 0) { throw new Error(`No valid data found for "${name}".`); }
-                const average = (sum / count).toFixed(2);
-                const minValue = Number(minFeature.properties[config.property]);
-                const maxValue = Number(maxFeature.properties[config.property]);
-                const minRegion = minFeature.properties['SA1_CODE21'];
-                const maxRegion = maxFeature.properties['SA1_CODE21'];
-                prompt = `You are a concise data analyst for a public-facing dashboard. Based on the following data for the "${name}" indicator in Melbourne's inner suburbs, write a short, engaging summary (around 50-70 words). Do not just list the numbers; provide a brief insight into what the data shows (e.g., "a significant disparity," "a wide range," "a concentration of..."). Key Statistics: - Highest value: ${maxValue.toLocaleString()} (in SA1 area ${maxRegion}) - Lowest value: ${minValue.toLocaleString()} (in SA1 area ${minRegion}) - Average value across all areas: ${Number(average).toLocaleString()}`;
+                
+                // --- REFINED PROMPT BASED PURELY ON METADATA ---
+                prompt = `You are an expert urban data analyst providing a summary for a public-facing dashboard about Melbourne's Fishermans Bend.
+Your task is to generate a clear, descriptive summary for the "${name}" indicator based ONLY on the metadata provided below.
+
+Use the following information to structure your response. Present it as a cohesive and easy-to-read paragraph, not as a list. **Crucially, when you incorporate a piece of metadata from the list below into your paragraph, you must make that specific value bold using Markdown (e.g., the goal is **An inclusive community**).**
+
+- **Alignment with Goals**: This indicator aligns with Fishermans Bend's goal of: "${metadata["FB's goals"]}".
+- **Measurement Method**: It is measured by this method: "${metadata["Note for measurement"]}".
+- **Data Origin**: The data is sourced from "${metadata["Data sources"]}".
+- **Geographic Coverage**: The data's spatial extent is "${metadata["Spatial extent"]}", presented at a "${metadata["Spatial scale"]}" level.
+- **Timeliness**: The data is updated every "${metadata["Update frequency"]}". The current version is from "${metadata["Temporal currency"]}", and the historical data available covers the period "${metadata["Temporal extent"]}".
+
+Synthesize this information into an engaging and informative paragraph of about 70-100 words. Start by explaining what this indicator is and why it's important for Fishermans Bend's goals. Then, provide context about the data itself. Remember to make all the specific metadata values bold in your final output. Do not invent or infer any data values, statistics, or trends.`;
+
+
             } else if (type === 'precinct') {
                 prompt = `You are a concise urban planning analyst. Write a short, engaging summary (around 60-80 words) about the "${name}" precinct within Melbourne's Fishermans Bend. Describe its key vision or main characteristics. If relevant, mention its relationship to the other precincts like Montague, Sandridge, and the Employment Precinct.`;
+
             }
+
             if (prompt) {
                 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
                 const result = await model.generateContent(prompt);
@@ -350,21 +357,25 @@ export default function Map() {
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded()) return;
 
-    const fillOpacity = textHoveredPrecinct
-      ? ['case', ['==', ['get', 'name'], textHoveredPrecinct], 0.75, 0.1]
-      : 0.15;
-    map.current.setPaintProperty('precincts-fill-layer', 'fill-opacity', fillOpacity);
+    if (textHoveredPrecinct) {
+      const fillColorExpression = [ 'case', ['==', ['get', 'name'], textHoveredPrecinct], PRECINCT_COLORS[textHoveredPrecinct], '#ffffffff' ];
+      const fillOpacityExpression = [ 'case', ['==', ['get', 'name'], textHoveredPrecinct], 0.6, 0.15 ];
+      const outlineColorExpression = [ 'case', ['==', ['get', 'name'], textHoveredPrecinct], PRECINCT_COLORS[textHoveredPrecinct], '#0868ac' ];
 
-    const highlightFilter = textHoveredPrecinct
-      ? ['==', 'name', textHoveredPrecinct]
-      : ['==', 'name', ''];
-    map.current.setFilter('precincts-highlight-outline-layer', highlightFilter);
+      map.current.setPaintProperty('precincts-fill-layer', 'fill-color', fillColorExpression);
+      map.current.setPaintProperty('precincts-fill-layer', 'fill-opacity', fillOpacityExpression);
+      map.current.setPaintProperty('precincts-outline-layer', 'line-color', outlineColorExpression);
 
-  }, [textHoveredPrecinct]);
+    } else {
+      map.current.setPaintProperty('precincts-fill-layer', 'fill-color', '#ffffffff');
+      map.current.setPaintProperty('precincts-fill-layer', 'fill-opacity', 0.15);
+      map.current.setPaintProperty('precincts-outline-layer', 'line-color', '#0868ac');
+    }
+  }, [textHoveredPrecinct, PRECINCT_COLORS]);
 
   // --- UI HANDLERS ---
   const handleSearchClick = () => {
-    setIndicators(['Employment', 'Education', 'Income', 'Occupation']);
+    setIndicators(['Diversity of Education Qualification', 'Diversity of Income', 'Diversity of Occupations']);
     setShowIndicators(true);
   };
 
