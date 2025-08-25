@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -13,7 +13,6 @@ const InteractiveDescription = ({ text, keywords, colors, onKeywordHover }) => {
   if (!text) return null;
 
   // Create a regex that matches either a keyword or a bolded section.
-  // The bold regex part is `\\*\\*.+?\\*\\*` which finds text between two pairs of asterisks.
   const regex = new RegExp(`(${keywords.join('|')}|\\*\\*.+?\\*\\*)`, 'gi');
   const parts = text.split(regex).filter(part => part);
 
@@ -22,7 +21,6 @@ const InteractiveDescription = ({ text, keywords, colors, onKeywordHover }) => {
       {parts.map((part, index) => {
         // First, check if the part is a bolded section.
         if (part.startsWith('**') && part.endsWith('**')) {
-          // If so, render it as bold text, removing the asterisks.
           return <strong key={index}>{part.substring(2, part.length - 2)}</strong>;
         }
 
@@ -107,13 +105,15 @@ export default function Map() {
 
   // --- STATE MANAGEMENT ---
   const [searchText, setSearchText] = useState('');
-  const [indicators, setIndicators] = useState([]);
+  const [indicators, setIndicators] = useState([]); // Will now store {indicator, score} objects
   const [selectedIndicator, setSelectedIndicator] = useState(null);
   const [showIndicators, setShowIndicators] = useState(false);
   const [panelFocus, setPanelFocus] = useState(null);
   const [dynamicDescription, setDynamicDescription] = useState('');
   const [isDescriptionLoading, setIsDescriptionLoading] = useState(false);
   const [textHoveredPrecinct, setTextHoveredPrecinct] = useState(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
 
   // Panel widths for map padding
   const leftPanelWidth = 288;
@@ -307,13 +307,12 @@ export default function Map() {
         try {
             let prompt = '';
             if (type === 'indicator') {
-                const metadata = indicatorMetadata[name]; // <-- GET METADATA FOR THE INDICATOR
+                const metadata = indicatorMetadata[name];
 
                 if (!metadata) {
                     throw new Error(`Metadata is missing for the "${name}" indicator.`);
                 }
                 
-                // --- REFINED PROMPT BASED PURELY ON METADATA ---
                 prompt = `You are an expert urban data analyst providing a summary for a public-facing dashboard about Melbourne's Fishermans Bend.
 Your task is to generate a clear, descriptive summary for the "${name}" indicator based ONLY on the metadata provided below.
 
@@ -374,9 +373,37 @@ Synthesize this information into an engaging and informative paragraph of about 
   }, [textHoveredPrecinct, PRECINCT_COLORS]);
 
   // --- UI HANDLERS ---
-  const handleSearchClick = () => {
-    setIndicators(['Diversity of Education Qualification', 'Diversity of Income', 'Diversity of Occupations']);
-    setShowIndicators(true);
+  const handleSearchClick = async () => {
+    if (!searchText.trim()) return;
+
+    setIsSearching(true);
+    setShowIndicators(false);
+    setSearchError('');
+
+    try {
+      const response = await fetch('http://127.0.0.1:5000/api/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: searchText }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Network response was not ok.');
+      }
+      
+      const rankedIndicators = await response.json();
+      setIndicators(rankedIndicators); // Update state with ranked list
+      setShowIndicators(true);
+
+    } catch (error) {
+      console.error("Failed to fetch indicators:", error);
+      setSearchError("Failed to connect to the backend. Please ensure the Python server is running.");
+      setIndicators([]);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const handleIndicatorSelect = (indicator) => {
@@ -397,26 +424,40 @@ Synthesize this information into an engaging and informative paragraph of about 
       {/* Map container */}
       <div style={{ position: 'relative', flex: 1 }}>
         <div ref={mapContainer} style={{ position: 'absolute', width: '100%', height: '100%' }} />
+        {/* === START: MODIFIED LEFT PANEL === */}
         <div style={{ position: 'absolute', top: '1rem', left: '1rem', backgroundColor: 'white', padding: '1rem', borderRadius: '0.5rem', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', width: '288px', zIndex: 10 }}>
-          <h3 style={{ fontSize: '1.125rem', fontWeight: 'bold', marginBottom: '1rem' }}>I'm interested in ...</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="e.g., 'jobs' or 'housing'" style={{ padding: '0.5rem', border: '1px solid #D1D5DB', borderRadius: '0.375rem', outline: 'none' }} />
-            <button onClick={handleSearchClick} style={{ backgroundColor: '#2563EB', color: 'white', fontWeight: 600, padding: '0.5rem 1rem', borderRadius: '0.375rem', border: 'none', cursor: 'pointer' }}>Search</button>
-          </div>
-          {showIndicators && (
-            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #E5E7EB' }}>
-              <h4 style={{ fontWeight: 600, color: '#1F2937', marginBottom: '0.5rem' }}>Suggested Indicators</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {indicators.map((indicator) => (
-                  <div key={indicator} style={{ display: 'flex', alignItems: 'center' }}>
-                    <input type="radio" id={indicator} name="indicator" checked={selectedIndicator === indicator} onChange={() => handleIndicatorSelect(indicator)} style={{ height: '1rem', width: '1rem' }} />
-                    <label htmlFor={indicator} style={{ marginLeft: '0.75rem', fontSize: '0.875rem', color: '#374151' }}>{indicator}</label>
-                  </div>
-                ))}
-              </div>
+          
+          {/* --- Search Functionality & Results --- */}
+          <div>
+            <h3 style={{ fontSize: '1.125rem', fontWeight: 'bold', marginBottom: '1rem' }}>I'm interested in...</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="e.g., 'financial wellbeing' or 'jobs'" style={{ padding: '0.5rem', border: '1px solid #D1D5DB', borderRadius: '0.375rem', outline: 'none' }} />
+              <button onClick={handleSearchClick} disabled={isSearching} style={{ backgroundColor: '#2563EB', color: 'white', fontWeight: 600, padding: '0.5rem 1rem', borderRadius: '0.375rem', border: 'none', cursor: 'pointer', opacity: isSearching ? 0.6 : 1 }}>
+                {isSearching ? 'Searching...' : 'Search'}
+              </button>
             </div>
-          )}
+            
+            {/* Dynamic Search Results */}
+            {searchError && <p style={{color: 'red', fontSize: '0.8rem', marginTop: '1rem'}}>{searchError}</p>}
+            {showIndicators && indicators.length > 0 && (
+              <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #E5E7EB' }}>
+                <h4 style={{ fontWeight: 600, color: '#1F2937', marginBottom: '0.5rem' }}>Suggested Indicators</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {indicators.slice(0, 3).map((item) => (
+                    <div key={item.indicator} style={{ display: 'flex', alignItems: 'center' }}>
+                      <input type="radio" id={item.indicator} name="indicator" checked={selectedIndicator === item.indicator} onChange={() => handleIndicatorSelect(item.indicator)} style={{ height: '1rem', width: '1rem' }} />
+                      <label htmlFor={item.indicator} style={{ marginLeft: '0.75rem', fontSize: '0.875rem', color: '#374151' }}>
+                        {item.indicator}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
+        {/* === END: MODIFIED LEFT PANEL === */}
+
         {selectedIndicator && legendData[selectedIndicator] && <Legend title={legendData[selectedIndicator].title} items={legendData[selectedIndicator].items} />}
       </div>
       {/* Text Explorer Panel */}

@@ -2,6 +2,20 @@
 # How to run maplibre react.js
 
 
+### Run backend for indicator selection
+
+The backend which is a RAG-based system for selecting the most relevant indicators for user input query, needs to be first loaded successfully as follows:
+- cd to `src/components` 
+- run `python react-scripts start` : this will run the the app_server.py as backend in the allocated port (e.g, http://127.0.0.1:5000)
+
+* If it is sucessfull, you will see Backend ready check box.
+
+### If the port is in use dow the following:
+- `lsof -i :YOUR_PORT_NUMBER`
+- `kill -9 PID`
+
+### Launch the webapp as frontend
+
 <em> Before following the below steps, make sure the maplibre react is running successfully on your machine, further instructions on how to install react and its dependencies (e.g., maplibre-gl), follow https://docs.maptiler.com/react/maplibre-gl-js/how-to-use-maplibre-gl-js/</em>
 
 - cd to the directory (/Map Demonstrator) 
