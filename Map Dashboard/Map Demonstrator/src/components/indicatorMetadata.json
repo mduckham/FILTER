@@ -1,35 +1,114 @@
 {
-  "Diversity of Education Qualification": {
-    "FB's goals": "An inclusive and healthy community",
-    "FILTER Indicators": "Diversity of education qualification",
-    "Note for measurement": "This measure looks at a specific qualification category and compares that to other qualification categories within the same geography. This entropy measure quantifies the balance of qualification categories using a score.",
-    "Data sources": "ABS",
+  "Number of jobs": {
+    "FB's target": "An overarching target for 80,000 jobs by 2055",
+    "FILTER category": "Economic Activity",
+    "Note for measurement": "The total number of jobs within the boundary of the destination zone of the journey to work.",
+    "Data sources": "ABS counts of jobs at destination zones (DZN) in each census year",
     "Spatial extent": "Australia",
-    "Spatial scale": "SA1",
+    "Spatial scale": "Destination zones (DZN) (2011, 2016, 2021)",
     "Update frequency": "5 years",
     "Temporal currency": "2021",
-    "Temporal extent": "1992-2021"
+    "Temporal extent": "2011-2021"
   },
-  "Diversity of Income": {
-    "FB's goals": "An inclusive and healthy community",
-    "FILTER Indicators": "Diversity of income (residents)",
-    "Note for measurement": "This measure looks at a specific income category and compares that to other income categories within the same geography. This entropy measure quantifies the balance of income categories using a score.",
-    "Data sources": "ABS",
+  "Land use mix": {
+    "FB's target": "An activity core in each precinct where businesses can thrive and everyday needs are met.",
+    "FILTER category": "Economic Activity",
+    "Note for measurement": "The Land Use Mix looks at a specific land use category and compares that to other land use categories within the same area (total 7 categories: residential, commercial, industrial, education, parkland, transport, water). It uses a measure (Herfindahl–Hirschman index) quantifying the balance of land use categories using a score. The value of the score ranges from 0 (no diversity) to 1 (maximum diversity). A score close to 1 means the land use in an area is evenly distributed across all types. A score close to 0 means the land use is skewed towards a particular land use type (or a sole land use type in an area).",
+    "Data sources": "ABS land use classification at mesh blocks (MB) in each census year (aggregated to 2021 SA1s)",
     "Spatial extent": "Australia",
-    "Spatial scale": "SA1",
+    "Spatial scale": "SA1 (2021)",
     "Update frequency": "5 years",
     "Temporal currency": "2021",
-    "Temporal extent": "1992-2021"
+    "Temporal extent": "2011-2021"
   },
-  "Diversity of Occupations": {
-    "FB's goals": "An inclusive and healthy community",
-    "FILTER Indicators": "Diversity of occupations (residents)",
-    "Note for measurement": "This measure looks at a specific occupation category and compares that to other occupation categories within the same area. This entropy measure quantifies the balance of occupation categories using a score.",
-    "Data sources": "ABS",
+  "Number of residents/dwellings": {
+    "FB's target": "An overarching target for 80,000 residents by 2055",
+    "FILTER category": "Healthy and Liveable Community",
+    "Note for measurement": "The total number of residents/dwellings within the boundary of a mesh block or SA1.",
+    "Data sources": "ABS count of residents/dwellings in each census year",
     "Spatial extent": "Australia",
-    "Spatial scale": "SA1",
+    "Spatial scale": "mesh block, SA1 (2011, 2016, 2021)",
     "Update frequency": "5 years",
     "Temporal currency": "2021",
-    "Temporal extent": "1992-2021"
+    "Temporal extent": "2011-2021"
+  },
+  "Diversity of residents’ age": {  
+    "FB's target": "A diverse community, including a mix of income, age, education levels and backgrounds",
+    "FILTER category": "Social Inclusion and Cohesion",
+    "Note for measurement": "This measure looks at the number of residents in a specific age group and compares that to other age groups within the same area (total 10 age groups, 10-year intervals). This measure (Herfindahl–Hirschman index) quantifies the diversity of age using a score. The value of the score ranges from 0 (no diversity) to 1 (maximum diversity). A score close to 1 means the population is evenly distributed across all age groups. A score close to 0 means the age of residents is highly skewed towards one particular age group.",
+    "Data sources": "ABS count of residents/dwellings at mesh blocks (MB) in each census year",
+    "Spatial extent": "Australia",
+    "Spatial scale": "SA1 (2021)",
+    "Update frequency": "5 years",
+    "Temporal currency": "2021",
+    "Temporal extent": "2016-2021"
+  },
+  "Diversity of residents’ income": {
+    "FB's target": "A diverse community, including a mix of income, age, education levels and backgrounds",
+    "FILTER category": "Social Inclusion and Cohesion ",
+    "Note for measurement": "This measure looks at a specific income category and compares that to other income categories within the same area (total 15 income categories, from low to high). This measure (Herfindahl–Hirschman index) quantifies the diversity of income categories using a score. The value of the score ranges from 0 (no diversity) to 1 (maximum diversity). A score close to 1 means the residents are evenly distributed across all income categories. A score close to 0 means the income of residents is highly skewed towards one particular income category.",
+    "Data sources": "ABS count of residents by income category in each census year.",
+    "Spatial extent": "Australia",
+    "Spatial scale": "SA1 (2021)",
+    "Update frequency": "5 years",
+    "Temporal currency": "2021",
+    "Temporal extent": "2016-2021"
+  },
+
+
+  "Industry specialisation": {
+    "FB's target": "Has strong economic resilience and diversity",
+    "FILTER category": "Economic Activity",
+    "Note for measurement": " This measure looks at the total number of jobs in a specific industry sector and compares that to the total number of jobs in other industry sectors within the same area. This entropy measure quantifies the level of concentration of industry sectors in the local economy using a score. The value of the score ranges from 0 (minimal concentration) to 1 (maximum concentration). A score close to 0 means the number of jobs is evenly distributed across all industry sectors. A score close to 1 means the job is highly skewed towards one particular industry sector, i.e., one industry sector dominates the local economy. ",
+    "Data sources": "ABS count of jobs by industry at DZN in each census year",
+    "Spatial extent": "Australia",
+    "Spatial scale": "SA1 or DZN (2011, 2016, 2021)",
+    "Update frequency": "5 years",
+    "Temporal currency": "2021",
+    "Temporal extent": "2011-2021"
+  },
+  "Accessibility of Social Infrastructure": {
+    "FB's target": "An activity core in each precinct where businesses can thrive and everyday needs are met.",
+    "FILTER category": "Social Inclusion and Cohesion",
+    "Note for measurement": "The Social Infrastructure Index represents a social infrastructure mix score calculated by summing the 16 binary accessibility indicators, each measuring the accessibility of a service type within threshold distances, including Community Centres, Culture and Leisure, Early Years, Education, Health and Social Services, and Sport and Recreation. Score for the Social Infrastructure Index ranges from a minimum of 0 to a maximum of 16 if all types are present. ",
+    "Data sources": "Australian Urban Observatory (AUO)",
+    "Spatial extent": "Australia",
+    "Spatial scale": "SA1 (2021)",
+    "Update frequency": "3 years",
+    "Temporal currency": "2021",
+    "Temporal extent": "2018-2021"
+  },
+  "Percent of households spending more than 30% of total income on housing costs (Housing Stress)": {
+    "FB's target": "At least 6% of all housing is affordable",
+    "FILTER category": "Affordable and Accessible Housing",
+    "Note for measurement": "Housing affordability stress is calculated by comparing the average dollar value of household weekly income and the average dollar value of weekly mortgage repayment and rent in an area. If the average mortgage repayment and rent (combined) is more than 30% of average household income, residents are considered under high pressure of housing costs.",
+    "Data sources": "AUO",
+    "Spatial extent": "Australia",
+    "Spatial scale": "SA1 (2021)",
+    "Update frequency": "3 years",
+    "Temporal currency": "2021",
+    "Temporal extent": "2018-2021"
+  },
+  "Percent of dwellings and workplaces is within 200 meters of a public open space": {
+    "FB's target": "People can access public open space within 200 metres of their home and work",
+    "FILTER category": "Affordable and Accessible Housing",
+    "Note for measurement": "The percentage of the total dwellings in an area that fall within a 200 metre radius from a public open space via the pedestrian road network.",
+    "Data sources": "AUO",
+    "Spatial extent": "Australia",
+    "Spatial scale": "SA1 (2021)",
+    "Update frequency": "3 years",
+    "Temporal currency": "2021",
+    "Temporal extent": "2018-2021"
+  },
+  "Walkability index": {
+    "FB's target": "A walkability score of 90% is achieved from homes and workplaces",
+    "FILTER category": "Active and Sustainable Transport",
+    "Note for measurement": "Walkability for transport is calculated based on three key factors: land use mix and services of daily living (something to walk to); street connectivity (a way to get there); and dwelling density.",
+    "Data sources": "AUO",
+    "Spatial extent": "Australia",
+    "Spatial scale": "SA1 (2021)",
+    "Update frequency": "3 years",
+    "Temporal currency": "2021",
+    "Temporal extent": "2018-2021"
   }
 }

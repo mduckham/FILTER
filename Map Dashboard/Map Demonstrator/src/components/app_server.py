@@ -10,8 +10,6 @@ import numpy as np
 app = Flask(__name__)
 CORS(app) # This enables cross-origin requests
 
-# --- Functions from your original script ---
-
 def load_metadata_from_json(filepath):
     try:
         with open(filepath, 'r', encoding='utf-8') as file:
