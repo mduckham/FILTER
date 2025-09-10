@@ -370,7 +370,7 @@ export default function Map() {
       <div ref={mapContainer} style={{ position: 'absolute', width: '100%', height: '100%' }} />
       {/* Left overlay with dropdown and file upload */}
       <div style={{ position: 'absolute', top: '1rem', left: '1rem', backgroundColor: 'white', padding: '1rem', borderRadius: '0.5rem', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', width: '288px', zIndex: 10 }}>
-        <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '0.5rem' }}>Indicator</h3>
+        <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '0.5rem' }}>Select Indicator</h3>
         <select
           value={selectedIndicator || ''}
           onChange={(e) => setSelectedIndicator(e.target.value || null)}
