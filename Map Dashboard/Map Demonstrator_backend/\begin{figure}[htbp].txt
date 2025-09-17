@@ -1,0 +1,14 @@
+\begin{figure}[htbp]
+\centering
+{\Large\ttfamily
+\begin{verbatim}
+Geooperator
+ |-- Pragmatic
+ |-- GeoData
+ |-- Technical
+ |-- Formal
+ `-- Geoinformatics
+\end{verbatim}
+}
+\caption{Geooperator hierarchy (text-only, ASCII).}
+\end{figure}

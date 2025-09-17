@@ -36,11 +36,19 @@ app.add_middleware(
 
 @app.post("/generate")
 async def generate(
-    indicator: str = Form(..., description="One of: education, employment, income, pob, occupation"),
-    file: UploadFile = File(..., description="CSV file containing SA1 data for the selected indicator"),
-):
+    indicator: str = Form(..., description="One of: education, employment, income, pob, occupation, land use mix, industry specialisation"),
+    file: UploadFile = File(..., description="CSV file containing data for the selected indicator (SA1 or DZN depending on indicator)"),
+        scale: str | None = Form(None, description="Optional spatial scale hint: sa1 | mb | dzn"),
+    ):
     indicator = indicator.strip().lower()
-    if indicator not in {"education", "employment", "income", "pob", "occupation"}:
+    # Accept both SA1 and DZN based indicators
+    valid = {
+        "education", "employment", "income", "pob", "occupation",
+        "land use mix", "land_use_mix", "landusemix",
+        "total number of jobs", "total_jobs", "jobs_total",
+        "industry specialisation", "industry_specialisation", "industryspecialisation",
+    }
+    if indicator not in valid:
         raise HTTPException(status_code=400, detail=f"Invalid indicator: {indicator}")
 
     # Save uploaded CSV to a temp file
@@ -61,7 +69,14 @@ async def generate(
             data_dir=None,
             target_ids=None,
             out_dir=tempfile.gettempdir(),
-        )
+            scale=scale,
+            )
+    except ValueError as exc:
+        # Likely user input error (e.g., scale mismatch)
+        raise HTTPException(status_code=400, detail=str(exc))
+    except KeyError as exc:
+        # Missing expected column or join key
+        raise HTTPException(status_code=400, detail=f"Input error: {exc}")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Generation failed: {exc}")
     finally:
