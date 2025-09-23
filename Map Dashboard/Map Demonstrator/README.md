@@ -6,7 +6,7 @@
 
 The backend which is a RAG-based system for selecting the most relevant indicators for user input query, needs to be first loaded successfully as follows:
 - cd to `src/components` 
-- run `python react-scripts start` : this will run the the app_server.py as backend in the allocated port (e.g, http://127.0.0.1:5000)
+- run `python app_server.py` : this will run the the app_server.py as backend in the allocated port (e.g, http://127.0.0.1:5000)
 
 * If it is sucessfull, you will see Backend ready check box.
 

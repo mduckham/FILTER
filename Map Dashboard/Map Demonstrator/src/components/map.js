@@ -61,8 +61,8 @@ const Legend = React.forwardRef(({ title, items }, ref) => {
   return (
     <div ref={ref} style={{
       position: 'absolute',
-      bottom: '1rem',
-      right: '0rem',
+      bottom: '2.5rem', // move up to avoid attribution
+      right: '1.5rem',  // move left to avoid attribution
       backgroundColor: 'white',
       padding: '1rem',
       borderRadius: '0.5rem',
@@ -96,7 +96,9 @@ export default function Map() {
   const map = useRef(null);
   const descriptionCache = useRef({});
   const legendRef = useRef(null); // Ref for the legend component
+  const chartRef = useRef(null); // Ref for the jobs chart (for PDF export)
   const hoverStateBySource = useRef({}); // track hovered feature ids per source for outlines
+  const selectedStateBySource = useRef({}); // track selected feature ids per source for outlines
 
   // Definitions for interactive text highlighting
   const PRECINCT_NAMES = ['Montague', 'Sandridge', 'Lorimer', 'Wirraway', 'Employment Precinct'];
@@ -124,6 +126,14 @@ export default function Map() {
   const [availableYears, setAvailableYears] = useState([]); // e.g., [2011, 2016, 2021]
   const [hoveredYear, setHoveredYear] = useState(null); // kept for precinct text hover only
   const [selectedYear, setSelectedYear] = useState(null); // persistent year selection
+  // DZN selection and chart data
+  const [selectedDZNPoint, setSelectedDZNPoint] = useState(null); // [lng, lat]
+  const [selectedDZNJobs, setSelectedDZNJobs] = useState(null); // {2011:number,2016:number,2021:number}
+  const [jobsDataLoaded, setJobsDataLoaded] = useState(false);
+  const jobsGeoByYear = useRef({}); // {2011: FeatureCollection, 2016: ..., 2021: ...}
+  const [dznOptions, setDznOptions] = useState([]); // dropdown options from 2021
+  const [selectedDZNCode, setSelectedDZNCode] = useState('');
+  const dzn2021IndexRef = useRef({}); // code -> feature
 
   // Panel widths for map padding
   const leftPanelWidth = 288;
@@ -152,6 +162,153 @@ export default function Map() {
   'Diversity of Occupations': { path: '/data/occupation-fb-sa1.geojson', property: 'Occupation-VIC_Total' },
   // Multi-year indicator uses separate sources per year; properties per dataset are provided below in layer configs
   'Number of jobs': { path: null, property: null }
+  };
+
+  // Shared classes and palette for Number of jobs across all years
+  const JOBS_BREAKS = [591, 1097, 1356, 2742, 3000];
+  const JOBS_PALETTE = ['#fee5d9','#fcae91','#fb6a4a','#de2d26','#a50f15'];
+  const JOBS_YEAR_COLORS = { 2011: '#a50f15', 2016: '#08519c', 2021: '#006d2c' };
+
+  // --- Simple point-in-polygon utilities (ray casting) ---
+  const pointInRing = (pt, ring) => {
+    const [x, y] = pt; let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1];
+      const xj = ring[j][0], yj = ring[j][1];
+      const intersect = ((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  };
+  const pointInPolygonGeom = (pt, geom) => {
+    if (!geom) return false;
+    if (geom.type === 'Polygon') {
+      const [outer, ...holes] = geom.coordinates;
+      if (!pointInRing(pt, outer)) return false;
+      for (const hole of holes) { if (pointInRing(pt, hole)) return false; }
+      return true;
+    }
+    if (geom.type === 'MultiPolygon') {
+      for (const poly of geom.coordinates) {
+        const [outer, ...holes] = poly;
+        if (pointInRing(pt, outer)) {
+          let inHole = false; for (const hole of holes) { if (pointInRing(pt, hole)) { inHole = true; break; } }
+          if (!inHole) return true;
+        }
+      }
+      return false;
+    }
+    return false;
+  };
+
+  // --- Centroid utilities ---
+  const ringArea = (ring) => {
+    let area = 0;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i]; const [xj, yj] = ring[j];
+      area += (xj * yi - xi * yj);
+    }
+    return area / 2;
+  };
+  const ringCentroid = (ring) => {
+    let cx = 0, cy = 0; let a = 0;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i]; const [xj, yj] = ring[j];
+      const f = (xi * yj - xj * yi);
+      cx += (xi + xj) * f; cy += (yi + yj) * f; a += f;
+    }
+    a = a * 0.5;
+    if (a === 0) return ring[0];
+    return [cx / (6 * a), cy / (6 * a)];
+  };
+  const geomCentroid = (geom) => {
+    if (!geom) return null;
+    if (geom.type === 'Polygon') {
+      return ringCentroid(geom.coordinates[0]);
+    }
+    if (geom.type === 'MultiPolygon') {
+      // choose largest area polygon
+      let best = null; let bestA = -Infinity;
+      for (const poly of geom.coordinates) {
+        const a = Math.abs(ringArea(poly[0]));
+        if (a > bestA) { bestA = a; best = poly[0]; }
+      }
+      return best ? ringCentroid(best) : null;
+    }
+    return null;
+  };
+
+  // Load jobs GeoJSONs once (for chart point-in-polygon lookup)
+  useEffect(() => {
+    let canceled = false;
+    const loadAll = async () => {
+      try {
+        const urls = {
+          2011: '/data/Number_of_Jobs_DZN_11.geojson',
+          2016: '/data/Number_of_Jobs_DZN_16.geojson',
+          2021: '/data/Number_of_Jobs_DZN_21.geojson'
+        };
+        const entries = await Promise.all(Object.entries(urls).map(async ([yr, url]) => {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`Failed to fetch ${url}`);
+          const json = await res.json();
+          return [parseInt(yr, 10), json];
+        }));
+        if (!canceled) {
+          const obj = {}; entries.forEach(([yr, fc]) => { obj[yr] = fc; });
+          jobsGeoByYear.current = obj; setJobsDataLoaded(true);
+          // Build 2021 DZN dropdown options and index
+          const fc2021 = obj[2021];
+          if (fc2021 && fc2021.features) {
+            const idx = {}; const opts = [];
+            for (const feat of fc2021.features) {
+              const code = feat.properties?.DZN_CODE21 || feat.properties?.DZN_CODE || '';
+              if (!code) continue;
+              if (!idx[code]) { idx[code] = feat; opts.push({ value: code, label: code }); }
+            }
+            dzn2021IndexRef.current = idx;
+            setDznOptions(opts.sort((a,b)=>String(a.label).localeCompare(String(b.label))));
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load jobs GeoJSONs:', e);
+      }
+    };
+    loadAll();
+    return () => { canceled = true; };
+  }, []);
+
+  // When a DZN is selected from dropdown, compute time series via centroid PIP
+  useEffect(() => {
+    if (!selectedDZNCode) { setSelectedDZNJobs(null); return; }
+    const feat = dzn2021IndexRef.current[selectedDZNCode];
+    if (!feat) { setSelectedDZNJobs(null); return; }
+    const c = geomCentroid(feat.geometry);
+    if (!c) { setSelectedDZNJobs(null); return; }
+    const [lng, lat] = c; setSelectedDZNPoint([lng, lat]);
+    const vals = computeJobsForPoint(lng, lat);
+    setSelectedDZNJobs(vals);
+  }, [selectedDZNCode]);
+
+  // Compute clicked point's jobs across years by point-in-polygon search
+  const computeJobsForPoint = (lng, lat) => {
+    const pt = [lng, lat];
+    const years = [2011, 2016, 2021];
+    const propsByYear = { 2011: 'TotJob_11', 2016: 'TotJob_16', 2021: 'TotJob_21' };
+    const out = {};
+    years.forEach((yr) => {
+      const fc = jobsGeoByYear.current[yr];
+      if (!fc || !fc.features) { out[yr] = 0; return; }
+      let found = 0;
+      for (const feat of fc.features) {
+        if (pointInPolygonGeom(pt, feat.geometry)) {
+          const val = parseFloat(feat.properties?.[propsByYear[yr]] ?? '0');
+          found = isFinite(val) ? val : 0; break;
+        }
+      }
+      out[yr] = found;
+    });
+    return out;
   };
 
   // --- HOOKS for Map Lifecycle & Effects ---
@@ -198,9 +355,10 @@ export default function Map() {
         { id: 'diversity-of-education-qualification-layer', indicatorName: 'Diversity of Education Qualification', source: 'education-data-source', property: indicatorConfig['Diversity of Education Qualification'].property, colors: legendData['Diversity of Education Qualification'].items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500] },
         { id: 'diversity-of-income-layer', indicatorName: 'Diversity of Income', source: 'income-data-source', property: indicatorConfig['Diversity of Income'].property, colors: legendData['Diversity of Income'].items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500, 600, 700, 800] },
         { id: 'diversity-of-occupations-layer', indicatorName: 'Diversity of Occupations', source: 'occupation-data-source', property: indicatorConfig['Diversity of Occupations'].property, colors: legendData['Diversity of Occupations'].items.map(i => i.color), stops: [0, 100, 200, 300, 400, 500, 600, 700, 800] },
-        { id: 'number-of-jobs-2011-layer', indicatorName: 'Number of jobs', source: 'jobs-dzn-2011-data-source', property: 'TotJob_11', type: 'step', breaks: [591, 1097, 1356, 2742, 3000], colors: ['#fee5d9','#fcae91','#fb6a4a','#de2d26','#a50f15'] },
-        { id: 'number-of-jobs-2016-layer', indicatorName: 'Number of jobs', source: 'jobs-dzn-2016-data-source', property: 'TotJob_16', type: 'step', breaks: [591, 1097, 1356, 2742, 3000], colors: ['#deebf7','#9ecae1','#6baed6','#3182bd','#08519c'] },
-        { id: 'number-of-jobs-2021-layer', indicatorName: 'Number of jobs', source: 'jobs-dzn-2021-data-source', property: 'TotJob_21', type: 'step', breaks: [591, 1097, 1356, 2742, 3000], colors: ['#e5f5e0','#a1d99b','#74c476','#31a354','#006d2c'] }
+  // Use the same color palette and classes across years for better comparison
+  { id: 'number-of-jobs-2011-layer', indicatorName: 'Number of jobs', source: 'jobs-dzn-2011-data-source', property: 'TotJob_11', type: 'step', breaks: JOBS_BREAKS, colors: JOBS_PALETTE },
+  { id: 'number-of-jobs-2016-layer', indicatorName: 'Number of jobs', source: 'jobs-dzn-2016-data-source', property: 'TotJob_16', type: 'step', breaks: JOBS_BREAKS, colors: JOBS_PALETTE },
+  { id: 'number-of-jobs-2021-layer', indicatorName: 'Number of jobs', source: 'jobs-dzn-2021-data-source', property: 'TotJob_21', type: 'step', breaks: JOBS_BREAKS, colors: JOBS_PALETTE }
       ];
 
       layers.forEach(layer => {
@@ -237,7 +395,12 @@ export default function Map() {
           paint: {
             'line-color': '#111',
             'line-width': 2.5,
-            'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, 0]
+            'line-opacity': [
+              'case',
+              ['any', ['boolean', ['feature-state', 'hover'], false], ['boolean', ['feature-state', 'selected'], false]],
+              1,
+              0
+            ]
           }
         });
 
@@ -297,6 +460,23 @@ export default function Map() {
 
       map.current.on('mouseenter', 'precincts-fill-layer', () => { map.current.getCanvas().style.cursor = 'pointer'; });
       map.current.on('mouseleave', 'precincts-fill-layer', () => { map.current.getCanvas().style.cursor = ''; });
+
+      // Click on jobs layers to select a DZN point for charting
+      ['number-of-jobs-2011-layer','number-of-jobs-2016-layer','number-of-jobs-2021-layer'].forEach((lid) => {
+        if (map.current.getLayer(lid)) {
+          map.current.on('click', lid, (e) => {
+            if (!e.lngLat) return;
+            const { lng, lat } = e.lngLat;
+            setSelectedDZNPoint([lng, lat]);
+            if (jobsDataLoaded) {
+              const vals = computeJobsForPoint(lng, lat);
+              setSelectedDZNJobs(vals);
+            }
+          });
+          map.current.on('mouseenter', lid, () => { map.current.getCanvas().style.cursor = 'pointer'; });
+          map.current.on('mouseleave', lid, () => { map.current.getCanvas().style.cursor = ''; });
+        }
+      });
     });
 
     return () => { if (map.current) { map.current.remove(); map.current = null; } };
@@ -411,6 +591,47 @@ export default function Map() {
     }
   }, [selectedIndicator, selectedYear, availableYears]);
 
+  // Highlight selected DZN on map using feature-state 'selected'
+  useEffect(() => {
+    if (!map.current || !map.current.isStyleLoaded()) return;
+    if (!(panelFocus && panelFocus.type === 'indicator' && panelFocus.name === 'Number of jobs')) return;
+    const year = selectedYear || 2021;
+    const sourceIds = {
+      2011: 'jobs-dzn-2011-data-source',
+      2016: 'jobs-dzn-2016-data-source',
+      2021: 'jobs-dzn-2021-data-source',
+    };
+    const sourceId = sourceIds[year];
+    if (!sourceId) return;
+
+    // Clear previous selection
+    Object.entries(selectedStateBySource.current).forEach(([src, fid]) => {
+      try { map.current.setFeatureState({ source: src, id: fid }, { selected: false }); } catch (_) {}
+    });
+    selectedStateBySource.current = {};
+
+    if (!selectedDZNCode) return;
+
+    // Find the feature ID either by matching code (if same vintage) or by point-in-polygon using the selected DZN centroid
+    try {
+      const features = map.current.querySourceFeatures(sourceId) || [];
+      const codeProp = year === 2011 ? 'DZN_CODE11' : year === 2016 ? 'DZN_CODE16' : 'DZN_CODE21';
+      let match = features.find(f => (f.properties?.[codeProp] === selectedDZNCode));
+      if (!match && selectedDZNPoint) {
+        // Fallback: locate by centroid in current year's polygons
+        for (const f of features) {
+          if (pointInPolygonGeom(selectedDZNPoint, f.geometry)) { match = f; break; }
+        }
+      }
+      if (match && typeof match.id !== 'undefined') {
+        map.current.setFeatureState({ source: sourceId, id: match.id }, { selected: true });
+        selectedStateBySource.current[sourceId] = match.id;
+      }
+    } catch (e) {
+      // Fallback: no-op if source not ready
+    }
+  }, [selectedDZNCode, selectedYear, panelFocus]);
+
   // Generate LLM description when panel focus changes
   useEffect(() => {
     if (!panelFocus) {
@@ -445,7 +666,7 @@ Your task is to generate a clear, descriptive summary for the "${name}" indicato
 
 Use the following information to structure your response. Present it as a cohesive and easy-to-read paragraph, not as a list. **Crucially, when you incorporate a piece of metadata from the list below into your paragraph, you must make that specific value bold using Markdown (e.g., the goal is **An inclusive community**).**
 
-- **Alignment with Goals**: This indicator aligns with Fishermans Bend's goal of: "${metadata["FB's goals"]}".
+- **Alignment with Goals**: This indicator aligns with Fishermans Bend's goal of: "${metadata["FB's target"]}".
 - **Measurement Method**: It is measured by this method: "${metadata["Note for measurement"]}".
 - **Data Origin**: The data is sourced from "${metadata["Data sources"]}".
 - **Geographic Coverage**: The data's spatial extent is "${metadata["Spatial extent"]}", presented at a "${metadata["Spatial scale"]}" level.
@@ -572,6 +793,19 @@ Synthesize this information into an engaging and informative paragraph of about 
           legendImage = legendCanvas.toDataURL('image/png');
         }
 
+        // 3b. Get chart image (if it exists and this is Number of jobs)
+        let chartImage = null;
+        let chartWidthPx = 0, chartHeightPx = 0;
+        if (panelFocus && panelFocus.name === 'Number of jobs' && chartRef.current) {
+          const chartCanvas = await html2canvas(chartRef.current, {
+            backgroundColor: '#ffffff',
+            useCORS: true
+          });
+          chartImage = chartCanvas.toDataURL('image/png');
+          chartWidthPx = chartCanvas.width;
+          chartHeightPx = chartCanvas.height;
+        }
+
         // 4. Define PDF Layout
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
@@ -606,20 +840,47 @@ Synthesize this information into an engaging and informative paragraph of about 
         const splitText = doc.splitTextToSize(plainText, rightContentWidth);
         doc.text(splitText, rightContentX, contentStartY);
 
-        // --- Legend Image (Below description) ---
-        if (legendImage) {
-          const textHeight = doc.getTextDimensions(splitText).h;
-          const legendY = contentStartY + textHeight + 20;
-          
-          const legendCanvas = await html2canvas(legendRef.current);
-          const legendAspectRatio = legendCanvas.height / legendCanvas.width;
-          const legendWidth = 150; // Set a fixed width for the legend in the PDF
-          const legendHeight = legendWidth * legendAspectRatio;
+        // --- Right column layout: Chart BELOW text and ABOVE legend (scale to fit on one page) ---
+        const textHeight = doc.getTextDimensions(splitText).h;
+        const rightYStart = contentStartY + textHeight + 20;
+        const rightYEnd = pageHeight - margin;
+        const availableRightHeight = Math.max(0, rightYEnd - rightYStart);
 
-          // Only add legend if it fits on the page
-          if (legendY + legendHeight < pageHeight - margin) {
-              doc.addImage(legendImage, 'PNG', rightContentX, legendY, legendWidth, legendHeight);
-          }
+        // Base widths (respect right column width)
+        const baseChartWidth = Math.min(200, rightContentWidth);
+        const baseLegendWidth = Math.min(150, rightContentWidth);
+
+        // Derive natural aspect ratios
+        const chartAspect = chartHeightPx && chartWidthPx ? (chartHeightPx / chartWidthPx) : 0.6;
+        // Prefer DOM size for legend aspect to avoid an extra canvas render
+        const legendDom = legendRef.current;
+        const legendAspectRatio = legendDom && legendDom.offsetWidth ? (legendDom.offsetHeight / legendDom.offsetWidth) : 0.6;
+
+        // Natural heights at base widths
+        const chartTitleHeight = chartImage ? 14 : 0; // space for chart title
+        const chartGap = chartImage && legendImage ? 12 : 0; // gap between chart and legend
+        const naturalChartHeight = chartImage ? baseChartWidth * chartAspect : 0;
+        const naturalLegendHeight = legendImage ? baseLegendWidth * legendAspectRatio : 0;
+
+        // Compute total height needed and scale factor to fit
+        const totalNeeded = chartTitleHeight + naturalChartHeight + chartGap + naturalLegendHeight;
+        const scale = totalNeeded > 0 ? Math.min(1, availableRightHeight / totalNeeded) : 1;
+
+        let yCursor = rightYStart;
+        if (chartImage) {
+          const chartTitle = selectedDZNCode ? `Number of jobs by year (DZN ${selectedDZNCode})` : 'Number of jobs by year';
+          const chartW = baseChartWidth * scale;
+          const chartH = naturalChartHeight * scale;
+          doc.setFontSize(11);
+          doc.text(chartTitle, rightContentX, yCursor - 6);
+          doc.addImage(chartImage, 'PNG', rightContentX, yCursor, chartW, chartH);
+          yCursor += chartH + (legendImage ? chartGap * scale : 0);
+        }
+        if (legendImage) {
+          const legendW = baseLegendWidth * scale;
+          const legendH = naturalLegendHeight * scale;
+          doc.addImage(legendImage, 'PNG', rightContentX, yCursor, legendW, legendH);
+          yCursor += legendH;
         }
 
         // 6. Save the PDF
@@ -710,7 +971,6 @@ Synthesize this information into an engaging and informative paragraph of about 
           (() => {
             let items = legendData[selectedIndicator].items;
             if (selectedIndicator === 'Number of jobs') {
-              const year = selectedYear || (availableYears.length ? Math.max(...availableYears) : 2021);
               const bins = [
                 { min: 591, max: 1097 },
                 { min: 1097, max: 1356 },
@@ -718,13 +978,8 @@ Synthesize this information into an engaging and informative paragraph of about 
                 { min: 2742, max: 3000 },
                 { min: 3000, max: 4127 }
               ];
-              const colorsByYear = {
-                2011: ['#fee5d9','#fcae91','#fb6a4a','#de2d26','#a50f15'],
-                2016: ['#deebf7','#9ecae1','#6baed6','#3182bd','#08519c'],
-                2021: ['#e5f5e0','#a1d99b','#74c476','#31a354','#006d2c']
-              };
-              const palette = colorsByYear[year] || colorsByYear[2021];
-              items = bins.map((b, i) => ({ color: palette[i], label: `${b.min.toLocaleString()} - ${b.max.toLocaleString()}` }));
+              const unifiedPalette = ['#fee5d9','#fcae91','#fb6a4a','#de2d26','#a50f15'];
+              items = bins.map((b, i) => ({ color: unifiedPalette[i], label: `${b.min.toLocaleString()} - ${b.max.toLocaleString()}` }));
             }
             return <Legend ref={legendRef} title={legendData[selectedIndicator].title} items={items} />;
           })()
@@ -741,6 +996,7 @@ Synthesize this information into an engaging and informative paragraph of about 
                 ) : (
                   renderInteractiveDescription()
                 )}
+                {/* (chart moved to bottom section) */}
                 {/* Year selector chips (click to switch) */}
                 {panelFocus.type === 'indicator' && panelFocus.name === 'Number of jobs' && availableYears.length > 0 && (
                   <div style={{ marginTop: '0.75rem' }}>
@@ -773,6 +1029,71 @@ Synthesize this information into an engaging and informative paragraph of about 
             <p style={{ fontSize: '0.95rem', color: '#6c757d', fontStyle: 'italic' }}>Select an indicator from the left panel or click on a precinct on the map to see its description.</p>
             )}
         </div>
+        {/* Bottom analytics: DZN dropdown and chart for Number of jobs */}
+        {panelFocus && panelFocus.type === 'indicator' && panelFocus.name === 'Number of jobs' && (
+          <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #dee2e6' }}>
+            <div style={{ marginBottom: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <label style={{ fontSize: '0.9rem', color: '#495057' }}>Select DZN:</label>
+              <select value={selectedDZNCode} onChange={(e)=> setSelectedDZNCode(e.target.value)} style={{ flex: 1, padding: '6px 8px', border: '1px solid #ced4da', borderRadius: 6 }}>
+                <option value="">-- choose a DZN (2021) --</option>
+                {dznOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+            <div ref={chartRef}>
+              {selectedDZNJobs ? (
+                (() => {
+                  const data = [
+                    { year: 2011, value: selectedDZNJobs[2011] || 0 },
+                    { year: 2016, value: selectedDZNJobs[2016] || 0 },
+                    { year: 2021, value: selectedDZNJobs[2021] || 0 },
+                  ];
+                  const width = 260, height = 160, pad = { l: 44, r: 12, t: 12, b: 28 };
+                  const maxV = Math.max(1, ...data.map(d => d.value));
+                  const barW = (width - pad.l - pad.r) / data.length * 0.45; // thinner bars
+                  const xStep = (width - pad.l - pad.r) / data.length;
+                  const yScale = (v) => pad.t + (height - pad.t - pad.b) * (1 - v / maxV);
+                  const yAxisLabel = (legendData['Number of jobs'] && legendData['Number of jobs'].title) || 'Total jobs (DZN)';
+                  return (
+                    <svg width={width} height={height} style={{ background: '#fff', border: '1px solid #e9ecef', borderRadius: 6 }}>
+                      {/* y-axis label (rotated) */}
+                      <text x={14} y={height / 2} transform={`rotate(-90 14 ${height / 2})`} fontSize={11} textAnchor="middle" fill="#495057">{yAxisLabel}</text>
+                      {Array.from({ length: 4 }).map((_, i) => {
+                        const v = (maxV / 4) * i; const y = yScale(v);
+                        return (
+                          <g key={i}>
+                            <line x1={pad.l} x2={width - pad.r} y1={y} y2={y} stroke="#f1f3f5" />
+                            <text x={pad.l - 6} y={y + 4} fontSize={10} textAnchor="end" fill="#6c757d">{Math.round(v).toLocaleString()}</text>
+                          </g>
+                        );
+                      })}
+                      {data.map((d, idx) => (
+                        <text key={`x-${d.year}`} x={pad.l + idx * xStep + xStep / 2} y={height - 6} fontSize={11} textAnchor="middle" fill="#6c757d">{d.year}</text>
+                      ))}
+                      {data.map((d, idx) => {
+                        const x = pad.l + idx * xStep + (xStep - barW) / 2;
+                        const y = yScale(d.value);
+                        const h = height - pad.b - y;
+                        const isActive = selectedYear === d.year;
+                        const fill = isActive ? '#2563EB' : '#94a3b8';
+                        return (
+                          <g key={`b-${d.year}`} style={{ cursor: 'pointer' }} onClick={() => setSelectedYear(d.year)}>
+                            <rect x={x} y={y} width={barW} height={Math.max(0, h)} fill={fill} rx={3} />
+                            <title>{`${d.year}: ${d.value.toLocaleString()}`}</title>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  );
+                })()
+              ) : (
+                <div style={{ fontSize: '0.85rem', color: '#6c757d' }}>Select a DZN from the dropdown to see jobs over time.</div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* --- PDF Export Button --- */}
         {panelFocus && (
           <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #dee2e6' }}>

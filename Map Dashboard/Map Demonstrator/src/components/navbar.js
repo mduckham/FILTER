@@ -4,7 +4,7 @@ import './navbar.css';
 export default function Navbar(){
   return (
     <div className="heading">
-    <h1>FILTER Dashboard v0.8 (02.09.25)</h1>
+    <h1>FILTER Dashboard v0.9 (22.09.25)</h1>
     </div>
   );
 }
