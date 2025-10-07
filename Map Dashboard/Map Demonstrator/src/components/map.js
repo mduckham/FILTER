@@ -127,13 +127,19 @@ export default function Map() {
   const [hoveredYear, setHoveredYear] = useState(null); // kept for precinct text hover only
   const [selectedYear, setSelectedYear] = useState(null); // persistent year selection
   // DZN selection and chart data
-  const [selectedDZNPoint, setSelectedDZNPoint] = useState(null); // [lng, lat]
-  const [selectedDZNJobs, setSelectedDZNJobs] = useState(null); // {2011:number,2016:number,2021:number}
+  const [selectedDZNPoint, setSelectedDZNPoint] = useState(null); // [lng, lat] (legacy selection - no longer used for UI)
+  const [selectedDZNJobs, setSelectedDZNJobs] = useState(null); // legacy selection chart data (not shown)
+  // Hover-driven chart data for DZN
+  const [hoveredDZNJobs, setHoveredDZNJobs] = useState(null); // {2011:number,2016:number,2021:number}
+  const [hoveredDZNCode, setHoveredDZNCode] = useState('');
   const [jobsDataLoaded, setJobsDataLoaded] = useState(false);
   const jobsGeoByYear = useRef({}); // {2011: FeatureCollection, 2016: ..., 2021: ...}
   const [dznOptions, setDznOptions] = useState([]); // dropdown options from 2021
   const [selectedDZNCode, setSelectedDZNCode] = useState('');
   const dzn2021IndexRef = useRef({}); // code -> feature
+  // Dynamic global classification (0 to global max across years)
+  const [jobsBreaks, setJobsBreaks] = useState(null); // 4 thresholds for 5 classes
+  const [jobsMax, setJobsMax] = useState(null);
 
   // Panel widths for map padding
   const leftPanelWidth = 288;
@@ -269,6 +275,45 @@ export default function Map() {
             dzn2021IndexRef.current = idx;
             setDznOptions(opts.sort((a,b)=>String(a.label).localeCompare(String(b.label))));
           }
+
+          // Compute dynamic equal-interval breaks from 0 to global max across all years
+          try {
+            const years = [2011, 2016, 2021];
+            const propsByYear = { 2011: 'TotJob_11', 2016: 'TotJob_16', 2021: 'TotJob_21' };
+            let globalMax = 0;
+            years.forEach((yr) => {
+              const fc = obj[yr];
+              if (!fc || !fc.features) return;
+              fc.features.forEach((f) => {
+                const v = parseFloat(f.properties?.[propsByYear[yr]] ?? '0');
+                if (isFinite(v) && v > globalMax) globalMax = v;
+              });
+            });
+            const maxV = Math.max(0, globalMax);
+            const step = maxV / 5; // 5 classes
+            const breaks = [step, 2*step, 3*step, 4*step];
+            setJobsBreaks(breaks);
+            setJobsMax(maxV);
+
+            // If map is ready, update layer paint expressions with new breaks
+            const m = map.current;
+            if (m && m.isStyleLoaded()) {
+              const L = [
+                { id: 'number-of-jobs-2011-layer', prop: 'TotJob_11' },
+                { id: 'number-of-jobs-2016-layer', prop: 'TotJob_16' },
+                { id: 'number-of-jobs-2021-layer', prop: 'TotJob_21' }
+              ];
+              L.forEach(({ id, prop }) => {
+                if (!m.getLayer(id)) return;
+                const base = JOBS_PALETTE[0];
+                const stepExpr = ['step', ['to-number', ['get', prop]], base];
+                breaks.forEach((b, i) => { stepExpr.push(b, JOBS_PALETTE[i + 1] || JOBS_PALETTE[JOBS_PALETTE.length - 1]); });
+                m.setPaintProperty(id, 'fill-color', stepExpr);
+              });
+            }
+          } catch (err) {
+            console.warn('Failed to compute dynamic jobs breaks:', err);
+          }
         }
       } catch (e) {
         console.error('Failed to load jobs GeoJSONs:', e);
@@ -365,13 +410,29 @@ export default function Map() {
         // Fill paint
         let paint;
         if (layer.type === 'step') {
-          const base = '#ffffff';
+          const base = layer.colors && layer.colors.length ? layer.colors[0] : '#ffffff';
           const stepExpr = ['step', ['to-number', ['get', layer.property]], base];
           layer.breaks.forEach((b, i) => { stepExpr.push(b, layer.colors[i] || layer.colors[layer.colors.length - 1]); });
-          paint = { 'fill-color': stepExpr, 'fill-opacity': 0.6 };
+          paint = {
+            'fill-color': stepExpr,
+            'fill-opacity': [
+              'case',
+              ['any', ['boolean', ['feature-state', 'hover'], false], ['boolean', ['feature-state', 'selected'], false]],
+              1,
+              0.7
+            ]
+          };
         } else {
           const colorStops = layer.stops.flatMap((stop, i) => [stop, layer.colors[i] || layer.colors[layer.colors.length - 1]]);
-          paint = { 'fill-color': ['interpolate', ['linear'], ['to-number', ['get', layer.property]], ...colorStops], 'fill-opacity': 0.6 };
+          paint = {
+            'fill-color': ['interpolate', ['linear'], ['to-number', ['get', layer.property]], ...colorStops],
+            'fill-opacity': [
+              'case',
+              ['any', ['boolean', ['feature-state', 'hover'], false], ['boolean', ['feature-state', 'selected'], false]],
+              0.9,
+              0.9
+            ]
+          };
         }
         map.current.addLayer({ id: layer.id, type: 'fill', source: layer.source, layout: { visibility: 'none' }, paint });
 
@@ -384,6 +445,26 @@ export default function Map() {
           layout: { visibility: 'none' },
           paint: { 'line-color': '#666', 'line-width': 0.4, 'line-opacity': 0.7 }
         });
+
+        // Dim mask overlay to de-emphasize non-hovered features
+        // Order: fill (layer.id) -> dim-mask -> base-outline -> hover-outline
+        const dimMaskId = `${layer.id}-dim-mask`;
+        map.current.addLayer({
+          id: dimMaskId,
+          type: 'fill',
+          source: layer.source,
+          layout: { visibility: 'none' },
+          paint: {
+            'fill-color': '#fbfbfbff',
+            // If feature is hovered or selected: mask transparent (0). Else apply dim opacity
+            'fill-opacity': [
+              'case',
+              ['any', ['boolean', ['feature-state', 'hover'], false], ['boolean', ['feature-state', 'selected'], false]],
+              0,
+              0.5
+            ]
+          }
+        }, baseOutlineId);
 
         // Outline layer that lights up on hover
   const outlineId = `${layer.id}-hover-outline`;
@@ -415,6 +496,31 @@ export default function Map() {
           }
           hoverStateBySource.current[sourceId] = f.id;
           try { map.current.setFeatureState({ source: sourceId, id: f.id }, { hover: true }); } catch (_) {}
+
+          // If hovering over a Number of jobs layer, compute and show hover chart
+          if (layer.indicatorName === 'Number of jobs') {
+            try {
+              const c = geomCentroid(f.geometry);
+              if (c) {
+                const vals = computeJobsForPoint(c[0], c[1]);
+                setHoveredDZNJobs(vals);
+              }
+              // Get the DZN code for label from current layer's year-specific property
+              const yearMatch = layer.id.match(/(2011|2016|2021)/);
+              const yr = yearMatch ? parseInt(yearMatch[1], 10) : null;
+              const codeProp = yr === 2011 ? 'DZN_CODE11' : yr === 2016 ? 'DZN_CODE16' : 'DZN_CODE21';
+              setHoveredDZNCode(f.properties?.[codeProp] || '');
+            } catch (_) {
+              // no-op
+            }
+          }
+        });
+        map.current.on('mouseenter', layer.id, () => {
+          // Show dim mask when interacting with this layer
+          if (map.current.getLayer(dimMaskId)) {
+            map.current.setLayoutProperty(dimMaskId, 'visibility', 'visible');
+          }
+          map.current.getCanvas().style.cursor = 'pointer';
         });
         map.current.on('mouseleave', layer.id, () => {
           const sourceId = layer.source;
@@ -423,6 +529,15 @@ export default function Map() {
             try { map.current.setFeatureState({ source: sourceId, id: prev }, { hover: false }); } catch (_) {}
             hoverStateBySource.current[sourceId] = undefined;
           }
+          if (layer.indicatorName === 'Number of jobs') {
+            setHoveredDZNJobs(null);
+            setHoveredDZNCode('');
+          }
+          // Hide dim mask when leaving layer
+          if (map.current.getLayer(dimMaskId)) {
+            map.current.setLayoutProperty(dimMaskId, 'visibility', 'none');
+          }
+          map.current.getCanvas().style.cursor = '';
         });
       });
 
@@ -461,22 +576,7 @@ export default function Map() {
       map.current.on('mouseenter', 'precincts-fill-layer', () => { map.current.getCanvas().style.cursor = 'pointer'; });
       map.current.on('mouseleave', 'precincts-fill-layer', () => { map.current.getCanvas().style.cursor = ''; });
 
-      // Click on jobs layers to select a DZN point for charting
-      ['number-of-jobs-2011-layer','number-of-jobs-2016-layer','number-of-jobs-2021-layer'].forEach((lid) => {
-        if (map.current.getLayer(lid)) {
-          map.current.on('click', lid, (e) => {
-            if (!e.lngLat) return;
-            const { lng, lat } = e.lngLat;
-            setSelectedDZNPoint([lng, lat]);
-            if (jobsDataLoaded) {
-              const vals = computeJobsForPoint(lng, lat);
-              setSelectedDZNJobs(vals);
-            }
-          });
-          map.current.on('mouseenter', lid, () => { map.current.getCanvas().style.cursor = 'pointer'; });
-          map.current.on('mouseleave', lid, () => { map.current.getCanvas().style.cursor = ''; });
-        }
-      });
+      // Remove click selection for jobs layers; hover now drives the chart
     });
 
     return () => { if (map.current) { map.current.remove(); map.current = null; } };
@@ -528,8 +628,10 @@ export default function Map() {
         map.current.setLayoutProperty(layerId, 'visibility', vis);
   const outlineId = `${layerId}-hover-outline`;
   const baseOutlineId = `${layerId}-base-outline`;
+  const dimMaskId = `${layerId}-dim-mask`;
   if (map.current.getLayer(outlineId)) map.current.setLayoutProperty(outlineId, 'visibility', vis);
   if (map.current.getLayer(baseOutlineId)) map.current.setLayoutProperty(baseOutlineId, 'visibility', vis);
+  if (map.current.getLayer(dimMaskId)) map.current.setLayoutProperty(dimMaskId, 'visibility', 'none');
       }
     });
   }, [selectedIndicator]);
@@ -574,8 +676,13 @@ export default function Map() {
         map.current.setLayoutProperty(id, 'visibility', vis);
       }
       const outlineId = `${id}-hover-outline`;
+      const dimMaskId = `${id}-dim-mask`;
       if (map.current.getLayer(outlineId)) {
         map.current.setLayoutProperty(outlineId, 'visibility', vis);
+      }
+      if (map.current.getLayer(dimMaskId)) {
+        // Default hidden; shown during mouseenter
+        map.current.setLayoutProperty(dimMaskId, 'visibility', 'none');
       }
     };
 
@@ -681,7 +788,7 @@ Synthesize this information into an engaging and informative paragraph of about 
             }
 
             if (prompt) {
-                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+                const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
                 const result = await model.generateContent(prompt);
                 const text = result.response.text();
                 descriptionCache.current[cacheKey] = text;
@@ -971,15 +1078,16 @@ Synthesize this information into an engaging and informative paragraph of about 
           (() => {
             let items = legendData[selectedIndicator].items;
             if (selectedIndicator === 'Number of jobs') {
-              const bins = [
-                { min: 591, max: 1097 },
-                { min: 1097, max: 1356 },
-                { min: 1356, max: 2742 },
-                { min: 2742, max: 3000 },
-                { min: 3000, max: 4127 }
+              const br = jobsBreaks && jobsBreaks.length === 4 ? jobsBreaks : [591, 1097, 1356, 2742];
+              const maxV = jobsMax ?? 4127;
+              const ranges = [
+                { min: 0, max: br[0] },
+                { min: br[0], max: br[1] },
+                { min: br[1], max: br[2] },
+                { min: br[2], max: br[3] },
+                { min: br[3], max: maxV }
               ];
-              const unifiedPalette = ['#fee5d9','#fcae91','#fb6a4a','#de2d26','#a50f15'];
-              items = bins.map((b, i) => ({ color: unifiedPalette[i], label: `${b.min.toLocaleString()} - ${b.max.toLocaleString()}` }));
+              items = ranges.map((b, i) => ({ color: JOBS_PALETTE[i], label: `${Math.round(b.min).toLocaleString()} - ${Math.round(b.max).toLocaleString()}` }));
             }
             return <Legend ref={legendRef} title={legendData[selectedIndicator].title} items={items} />;
           })()
@@ -1029,66 +1137,62 @@ Synthesize this information into an engaging and informative paragraph of about 
             <p style={{ fontSize: '0.95rem', color: '#6c757d', fontStyle: 'italic' }}>Select an indicator from the left panel or click on a precinct on the map to see its description.</p>
             )}
         </div>
-        {/* Bottom analytics: DZN dropdown and chart for Number of jobs */}
+        {/* Hover analytics: DZN chart on hover for Number of jobs */}
         {panelFocus && panelFocus.type === 'indicator' && panelFocus.name === 'Number of jobs' && (
           <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #dee2e6' }}>
-            <div style={{ marginBottom: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <label style={{ fontSize: '0.9rem', color: '#495057' }}>Select DZN:</label>
-              <select value={selectedDZNCode} onChange={(e)=> setSelectedDZNCode(e.target.value)} style={{ flex: 1, padding: '6px 8px', border: '1px solid #ced4da', borderRadius: 6 }}>
-                <option value="">-- choose a DZN (2021) --</option>
-                {dznOptions.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
             <div ref={chartRef}>
-              {selectedDZNJobs ? (
+              {hoveredDZNJobs ? (
                 (() => {
                   const data = [
-                    { year: 2011, value: selectedDZNJobs[2011] || 0 },
-                    { year: 2016, value: selectedDZNJobs[2016] || 0 },
-                    { year: 2021, value: selectedDZNJobs[2021] || 0 },
+                    { year: 2011, value: hoveredDZNJobs[2011] || 0 },
+                    { year: 2016, value: hoveredDZNJobs[2016] || 0 },
+                    { year: 2021, value: hoveredDZNJobs[2021] || 0 },
                   ];
-                  const width = 260, height = 160, pad = { l: 44, r: 12, t: 12, b: 28 };
+                  // const width = 260, height = 160, pad = { l: 44, r: 12, t: 12, b: 28 };
+                  const width = 260, height = 160, pad = { l: 64, r: 12, t: 12, b: 28 };
+
                   const maxV = Math.max(1, ...data.map(d => d.value));
-                  const barW = (width - pad.l - pad.r) / data.length * 0.45; // thinner bars
+                  const barW = (width - pad.l - pad.r) / data.length * 0.45;
                   const xStep = (width - pad.l - pad.r) / data.length;
                   const yScale = (v) => pad.t + (height - pad.t - pad.b) * (1 - v / maxV);
+                  const title = hoveredDZNCode ? `Number of jobs by year (DZN ${hoveredDZNCode})` : 'Number of jobs by year';
                   const yAxisLabel = (legendData['Number of jobs'] && legendData['Number of jobs'].title) || 'Total jobs (DZN)';
                   return (
-                    <svg width={width} height={height} style={{ background: '#fff', border: '1px solid #e9ecef', borderRadius: 6 }}>
-                      {/* y-axis label (rotated) */}
-                      <text x={14} y={height / 2} transform={`rotate(-90 14 ${height / 2})`} fontSize={11} textAnchor="middle" fill="#495057">{yAxisLabel}</text>
-                      {Array.from({ length: 4 }).map((_, i) => {
-                        const v = (maxV / 4) * i; const y = yScale(v);
-                        return (
-                          <g key={i}>
-                            <line x1={pad.l} x2={width - pad.r} y1={y} y2={y} stroke="#f1f3f5" />
-                            <text x={pad.l - 6} y={y + 4} fontSize={10} textAnchor="end" fill="#6c757d">{Math.round(v).toLocaleString()}</text>
-                          </g>
-                        );
-                      })}
-                      {data.map((d, idx) => (
-                        <text key={`x-${d.year}`} x={pad.l + idx * xStep + xStep / 2} y={height - 6} fontSize={11} textAnchor="middle" fill="#6c757d">{d.year}</text>
-                      ))}
-                      {data.map((d, idx) => {
-                        const x = pad.l + idx * xStep + (xStep - barW) / 2;
-                        const y = yScale(d.value);
-                        const h = height - pad.b - y;
-                        const isActive = selectedYear === d.year;
-                        const fill = isActive ? '#2563EB' : '#94a3b8';
-                        return (
-                          <g key={`b-${d.year}`} style={{ cursor: 'pointer' }} onClick={() => setSelectedYear(d.year)}>
-                            <rect x={x} y={y} width={barW} height={Math.max(0, h)} fill={fill} rx={3} />
-                            <title>{`${d.year}: ${d.value.toLocaleString()}`}</title>
-                          </g>
-                        );
-                      })}
-                    </svg>
+                    <div>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#374151', marginBottom: '0.25rem' }}>{title}</div>
+                      <svg width={width} height={height} style={{ background: '#fff', border: '1px solid #e9ecef', borderRadius: 6 }}>
+                        <text x={14} y={height / 2} transform={`rotate(-90 14 ${height / 2})`} fontSize={11} textAnchor="middle" fill="#495057">{yAxisLabel}</text>
+                        {Array.from({ length: 4 }).map((_, i) => {
+                          const v = (maxV / 4) * i; const y = yScale(v);
+                          return (
+                            <g key={i}>
+                              <line x1={pad.l} x2={width - pad.r} y1={y} y2={y} stroke="#f1f3f5" />
+                              <text x={pad.l - 6} y={y + 4} fontSize={10} textAnchor="end" fill="#6c757d">{Math.round(v).toLocaleString()}</text>
+                            </g>
+                          );
+                        })}
+                        {data.map((d, idx) => (
+                          <text key={`x-${d.year}`} x={pad.l + idx * xStep + xStep / 2} y={height - 6} fontSize={11} textAnchor="middle" fill="#6c757d">{d.year}</text>
+                        ))}
+                        {data.map((d, idx) => {
+                          const x = pad.l + idx * xStep + (xStep - barW) / 2;
+                          const y = yScale(d.value);
+                          const h = height - pad.b - y;
+                          const isActive = selectedYear === d.year;
+                          const fill = isActive ? '#2563EB' : '#94a3b8';
+                          return (
+                            <g key={`b-${d.year}`}>
+                              <rect x={x} y={y} width={barW} height={Math.max(0, h)} fill={fill} rx={3} />
+                              <title>{`${d.year}: ${d.value.toLocaleString()}`}</title>
+                            </g>
+                          );
+                        })}
+                      </svg>
+                    </div>
                   );
                 })()
               ) : (
-                <div style={{ fontSize: '0.85rem', color: '#6c757d' }}>Select a DZN from the dropdown to see jobs over time.</div>
+                <div style={{ fontSize: '0.9rem', color: '#6c757d' }}>Hover over a DZN region to see jobs by year.</div>
               )}
             </div>
           </div>
