@@ -588,10 +588,66 @@ export default function Map() {
         setTextHoveredPrecinct(null);
       });
 
+      // Also allow clicking on the precinct boundary to show its narrative
+      map.current.on('click', 'precincts-outline-layer', (e) => {
+        const features = e.features || [];
+        const feature = features[0];
+        if (!feature || !feature.properties?.name) return;
+        const precinctName = feature.properties.name;
+        setPanelFocus({ type: 'precinct', name: precinctName });
+        setTextHoveredPrecinct(null);
+      });
+
       map.current.on('mouseenter', 'precincts-fill-layer', () => { map.current.getCanvas().style.cursor = 'pointer'; });
       map.current.on('mouseleave', 'precincts-fill-layer', () => { map.current.getCanvas().style.cursor = ''; });
 
-      // Remove click selection for jobs layers; hover now drives the chart
+      // Map-wide click handling to ensure precinct boundary is clickable regardless of layer stacking
+      map.current.on('click', (e) => {
+        const pt = e.point;
+        const bbox = [ [pt.x - 4, pt.y - 4], [pt.x + 4, pt.y + 4] ];
+        // Priority 1: Precinct boundary
+        try {
+          const precinctHits = map.current.queryRenderedFeatures(bbox, { layers: ['precincts-outline-layer'] });
+          if (precinctHits && precinctHits.length) {
+            const feat = precinctHits[0];
+            const name = feat.properties?.name;
+            if (name) {
+              setPanelFocus({ type: 'precinct', name });
+              setTextHoveredPrecinct(null);
+              return; // handled as precinct
+            }
+          }
+        } catch (_) { /* ignore */ }
+
+        // Priority 2: DZN under click (current visible year layer)
+        const jobsLayers = ['number-of-jobs-2011-layer','number-of-jobs-2016-layer','number-of-jobs-2021-layer'];
+        const visibleJobs = jobsLayers.filter(lid => {
+          try { return map.current.getLayer(lid) && map.current.getLayoutProperty(lid, 'visibility') === 'visible'; } catch { return false; }
+        });
+        for (const lid of visibleJobs) {
+          const feats = map.current.queryRenderedFeatures(pt, { layers: [lid] });
+          if (feats && feats.length) {
+            const f = feats[0];
+            const yearMatch = lid.match(/(2011|2016|2021)/);
+            const yr = yearMatch ? parseInt(yearMatch[1], 10) : 2021;
+            const codeProp = yr === 2011 ? 'DZN_CODE11' : yr === 2016 ? 'DZN_CODE16' : 'DZN_CODE21';
+
+            setSelectedIndicator('Number of jobs');
+            setPanelFocus({ type: 'indicator', name: 'Number of jobs' });
+            setSelectedYear(yr);
+
+            if (e.lngLat) {
+              const { lng, lat } = e.lngLat;
+              setSelectedDZNPoint([lng, lat]);
+              const vals = computeJobsForPoint(lng, lat);
+              setSelectedDZNJobs(vals);
+            }
+            const code = f.properties?.[codeProp] || '';
+            setSelectedDZNCode(code);
+            return; // handled as DZN selection
+          }
+        }
+      });
     });
 
     return () => { if (map.current) { map.current.remove(); map.current = null; } };
@@ -990,7 +1046,7 @@ Synthesize this information into an engaging and informative paragraph of about 
 
         let yCursor = rightYStart;
         if (chartImage) {
-          const chartTitle = selectedDZNCode ? `Number of jobs by year` : 'Number of jobs by year';
+          const chartTitle = selectedDZNCode ? `Total jobs by year` : 'Total jobs by year';
           const chartW = baseChartWidth * scale;
           const chartH = naturalChartHeight * scale;
           doc.setFontSize(11);
@@ -1152,37 +1208,38 @@ Synthesize this information into an engaging and informative paragraph of about 
             <p style={{ fontSize: '0.95rem', color: '#6c757d', fontStyle: 'italic' }}>Select an indicator from the left panel or click on a precinct on the map to see its description.</p>
             )}
         </div>
-        {/* Hover analytics: DZN chart on hover for Number of jobs */}
+        {/* DZN analytics: prefer selected (click) then hover for Number of jobs */}
         {panelFocus && panelFocus.type === 'indicator' && panelFocus.name === 'Number of jobs' && (
           <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #dee2e6' }}>
             <div ref={chartRef}>
-              {hoveredDZNJobs ? (
+              {(selectedDZNJobs || hoveredDZNJobs) ? (
                 (() => {
+                  const src = selectedDZNJobs || hoveredDZNJobs;
                   const data = [
-                    { year: 2011, value: hoveredDZNJobs[2011] || 0 },
-                    { year: 2016, value: hoveredDZNJobs[2016] || 0 },
-                    { year: 2021, value: hoveredDZNJobs[2021] || 0 },
+                    { year: 2011, value: src[2011] || 0 },
+                    { year: 2016, value: src[2016] || 0 },
+                    { year: 2021, value: src[2021] || 0 },
                   ];
-                  // const width = 260, height = 160, pad = { l: 44, r: 12, t: 12, b: 28 };
                   const width = 260, height = 160, pad = { l: 64, r: 12, t: 12, b: 28 };
 
                   const maxV = Math.max(1, ...data.map(d => d.value));
                   const barW = (width - pad.l - pad.r) / data.length * 0.45;
                   const xStep = (width - pad.l - pad.r) / data.length;
                   const yScale = (v) => pad.t + (height - pad.t - pad.b) * (1 - v / maxV);
-                  const title = hoveredDZNCode ? `Total jobs by year` : 'Total jobs by year';
+                  const dznLabel = selectedDZNCode || hoveredDZNCode;
+                  const title = dznLabel ? `Total jobs by year` : 'Total jobs by year';
                   const yAxisLabel = (legendData['Total jobs'] && legendData['Total jobs'].title) || 'Total jobs (count)';
                   return (
                     <div>
                       <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#374151', marginBottom: '0.25rem' }}>{title}</div>
                       <svg width={width} height={height} style={{ background: '#fff', border: '1px solid #e9ecef', borderRadius: 6 }}>
-                        <text x={14} y={height / 2} transform={`rotate(-90 14 ${height / 2})`} fontSize={11} textAnchor="middle" fill="#495057">{yAxisLabel}</text>
+                        <text x={pad.l - 44} y={height / 2} transform={`rotate(-90 ${pad.l - 44} ${height / 2})`} fontSize={11} textAnchor="middle" fill="#495057">{yAxisLabel}</text>
                         {Array.from({ length: 4 }).map((_, i) => {
                           const v = (maxV / 4) * i; const y = yScale(v);
                           return (
                             <g key={i}>
                               <line x1={pad.l} x2={width - pad.r} y1={y} y2={y} stroke="#f1f3f5" />
-                              <text x={pad.l - 6} y={y + 4} fontSize={10} textAnchor="end" fill="#6c757d">{Math.round(v).toLocaleString()}</text>
+                              <text x={pad.l - 8} y={y + 4} fontSize={11} textAnchor="end" fill="#6c757d">{Math.round(v).toLocaleString()}</text>
                             </g>
                           );
                         })}
@@ -1207,7 +1264,7 @@ Synthesize this information into an engaging and informative paragraph of about 
                   );
                 })()
               ) : (
-                <div style={{ fontSize: '0.9rem', color: '#6c757d' }}>Hover over a region to indicator's growth over years.</div>
+                <div style={{ fontSize: '0.9rem', color: '#6c757d' }}>Click or hover a DZN on the map to see jobs over time.</div>
               )}
             </div>
           </div>
