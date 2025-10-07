@@ -159,7 +159,7 @@ export default function Map() {
       title: 'Residents with any occupations (Total)',
       items: [ { color: '#f7fbff', label: '0 - 100' }, { color: '#deebf7', label: '101 - 200' }, { color: '#c6dbef', label: '201 - 300' }, { color: '#9ecae1', label: '301 - 400' }, { color: '#6baed6', label: '401 - 500' }, { color: '#4292c6', label: '501 - 600' }, { color: '#2171b5', label: '601 - 700' }, { color: '#08519c', label: '701 - 800' }, { color: '#08306b', label: '> 800' } ]
     },
-  'Number of jobs': { title: 'Total jobs (DZN)', items: [] }
+  'Number of jobs': { title: 'Total jobs (count)', items: [] }
   };
 
   const indicatorConfig = {
@@ -169,6 +169,21 @@ export default function Map() {
   // Multi-year indicator uses separate sources per year; properties per dataset are provided below in layer configs
   'Number of jobs': { path: null, property: null }
   };
+
+  // Show three default indicators on initial load (randomly picked from supported indicators)
+  useEffect(() => {
+    // Only run on initial mount
+    const supported = Object.keys(indicatorConfig);
+    if (!supported.length) return;
+    // If no suggestions shown yet and no search input, show defaults
+    if (!showIndicators && indicators.length === 0 && !searchText.trim()) {
+      const shuffled = [...supported].sort(() => 0.5 - Math.random());
+      const picks = shuffled.slice(0, Math.min(3, shuffled.length));
+      setIndicators(picks.map(name => ({ indicator: name, score: 1 })));
+      setShowIndicators(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Shared classes and palette for Number of jobs across all years
   const JOBS_BREAKS = [591, 1097, 1356, 2742, 3000];
@@ -975,7 +990,7 @@ Synthesize this information into an engaging and informative paragraph of about 
 
         let yCursor = rightYStart;
         if (chartImage) {
-          const chartTitle = selectedDZNCode ? `Number of jobs by year (DZN ${selectedDZNCode})` : 'Number of jobs by year';
+          const chartTitle = selectedDZNCode ? `Number of jobs by year` : 'Number of jobs by year';
           const chartW = baseChartWidth * scale;
           const chartH = naturalChartHeight * scale;
           doc.setFontSize(11);
@@ -1155,8 +1170,8 @@ Synthesize this information into an engaging and informative paragraph of about 
                   const barW = (width - pad.l - pad.r) / data.length * 0.45;
                   const xStep = (width - pad.l - pad.r) / data.length;
                   const yScale = (v) => pad.t + (height - pad.t - pad.b) * (1 - v / maxV);
-                  const title = hoveredDZNCode ? `Number of jobs by year (DZN ${hoveredDZNCode})` : 'Number of jobs by year';
-                  const yAxisLabel = (legendData['Number of jobs'] && legendData['Number of jobs'].title) || 'Total jobs (DZN)';
+                  const title = hoveredDZNCode ? `Total jobs by year` : 'Total jobs by year';
+                  const yAxisLabel = (legendData['Total jobs'] && legendData['Total jobs'].title) || 'Total jobs (count)';
                   return (
                     <div>
                       <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#374151', marginBottom: '0.25rem' }}>{title}</div>
@@ -1192,7 +1207,7 @@ Synthesize this information into an engaging and informative paragraph of about 
                   );
                 })()
               ) : (
-                <div style={{ fontSize: '0.9rem', color: '#6c757d' }}>Hover over a DZN region to see jobs by year.</div>
+                <div style={{ fontSize: '0.9rem', color: '#6c757d' }}>Hover over a region to indicator's growth over years.</div>
               )}
             </div>
           </div>
