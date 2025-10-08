@@ -1,10 +1,15 @@
 import json
 import re
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+from shapely.geometry import shape, mapping
+from shapely.ops import unary_union
+from shapely.prepared import prep
+from pyproj import Transformer, CRS
 
 # --- Initialize Flask App and CORS ---
 app = Flask(__name__)
@@ -85,6 +90,163 @@ def search_indicators():
     return jsonify(ranked_indicators)
 
 # --- Main Execution ---
+# NOTE: app.run moved to end of file so all routes are registered first.
+
+# ========================= NEW: SPATIAL OVERLAY API ========================= #
+
+# Project root: two levels up from src/components
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+DATA_DIR = os.path.join(BASE_DIR, 'public', 'data')
+
+def load_geojson(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+def guess_epsg_from_geojson(fc):
+    # Default to WGS84 if unspecified
+    name = (fc.get('crs', {}).get('properties', {}) or {}).get('name', '')
+    if 'EPSG::4283' in name or 'EPSG:4283' in name:
+        return 4283
+    if 'CRS84' in name or '4326' in name:
+        return 4326
+    return 4326
+
+def transform_coords(coords, transformer):
+    # Recursively apply transform to nested ring lists
+    if not isinstance(coords, list):
+        return coords
+    if len(coords) == 0:
+        return coords
+    if isinstance(coords[0], (int, float)) and len(coords) == 2:
+        x, y = coords  # x=lon, y=lat
+        X, Y = transformer.transform(x, y)  # always_xy=True => expects lon,lat
+        return [X, Y]
+    return [transform_coords(c, transformer) for c in coords]
+
+def reproject_feature_geometry(feat_geom, src_epsg, dst_epsg=3857):
+    # Ensure axis order lon,lat by setting always_xy=True
+    transformer = Transformer.from_crs(CRS.from_epsg(src_epsg), CRS.from_epsg(dst_epsg), always_xy=True)
+    gtype = feat_geom.get('type')
+    if gtype == 'Polygon':
+        new_coords = transform_coords(feat_geom['coordinates'], transformer)
+        return { 'type': 'Polygon', 'coordinates': new_coords }
+    if gtype == 'MultiPolygon':
+        new_coords = transform_coords(feat_geom['coordinates'], transformer)
+        return { 'type': 'MultiPolygon', 'coordinates': new_coords }
+    return feat_geom
+
+@app.route('/api/precinct_overlay', methods=['POST'])
+def precinct_overlay():
+    try:
+        data = request.get_json(force=True)
+        precinct_name = data.get('precinctName')
+        year = int(data.get('year', 2011))
+        if not precinct_name:
+            return jsonify({'error': 'Missing precinctName'}), 400
+
+        jobs_file = {
+            2011: 'Number_of_Jobs_DZN_11.geojson',
+            2016: 'Number_of_Jobs_DZN_16.geojson',
+            2021: 'Number_of_Jobs_DZN_21.geojson'
+        }.get(year)
+        if not jobs_file:
+            return jsonify({'error': f'Unsupported year {year}'}), 400
+
+        precincts_path = os.path.join(DATA_DIR, 'fb-precincts-official-boundary.geojson')
+        jobs_path = os.path.join(DATA_DIR, jobs_file)
+        print(f"[Overlay] Request precinct='{precinct_name}', year={year}")
+        print(f"[Overlay] DATA_DIR={DATA_DIR}")
+        print(f"[Overlay] precincts_path={precincts_path}")
+        print(f"[Overlay] jobs_path={jobs_path}")
+
+        precincts_fc = load_geojson(precincts_path)
+        jobs_fc = load_geojson(jobs_path)
+
+        # EPSG detection
+        precinct_epsg = guess_epsg_from_geojson(precincts_fc)
+        jobs_epsg = guess_epsg_from_geojson(jobs_fc)
+        print(f"[Overlay] EPSG precinct={precinct_epsg}, jobs={jobs_epsg}")
+
+        # Find the requested precinct feature(s)
+        p_feats = [f for f in precincts_fc.get('features', []) if (f.get('properties', {}).get('name') == precinct_name)]
+        print(f"[Overlay] Found {len(p_feats)} matching precinct feature(s)")
+        if not p_feats:
+            return jsonify({'error': f'Precinct {precinct_name} not found'}), 404
+
+        # Reproject precinct to 3857 and union into single geometry
+        p_geoms = []
+        for f in p_feats:
+            g = reproject_feature_geometry(f['geometry'], precinct_epsg, 3857)
+            try:
+                shp = shape(g)
+                if not shp.is_empty and shp.area > 0:
+                    p_geoms.append(shp)
+            except Exception:
+                continue
+        if not p_geoms:
+            return jsonify({'error': 'Precinct geometry invalid after reprojection'}), 500
+
+        p_union = unary_union(p_geoms)
+        p_prep = prep(p_union)
+        p_area = float(p_union.area)
+        print(f"[Overlay] Precinct area (m^2) = {p_area:.2f}")
+
+        # Prepare outputs
+        code_prop = {2011: 'DZN_CODE11', 2016: 'DZN_CODE16', 2021: 'DZN_CODE21'}[year]
+        val_prop = {2011: 'TotJob_11', 2016: 'TotJob_16', 2021: 'TotJob_21'}[year]
+        intersections = []
+
+        # Iterate DZN features
+        feats = jobs_fc.get('features', [])
+        print(f"[Overlay] DZN feature count = {len(feats)}")
+        for f in feats:
+            g = f.get('geometry')
+            if not g:
+                continue
+            try:
+                g_reproj = reproject_feature_geometry(g, jobs_epsg, 3857)
+                shp = shape(g_reproj)
+                if shp.is_empty or shp.area <= 0:
+                    continue
+                if not p_prep.intersects(shp):
+                    continue
+                inter = p_union.intersection(shp)
+                if inter.is_empty:
+                    continue
+                a = float(inter.area)
+                if a <= 0:
+                    continue
+                code = f.get('properties', {}).get(code_prop, '')
+                val = f.get('properties', {}).get(val_prop, 0)
+                try:
+                    val = float(val)
+                except Exception:
+                    val = 0.0
+                intersections.append({
+                    'code': code,
+                    'value': val,
+                    'area': a,
+                    'areaPct': a / p_area if p_area > 0 else 0.0
+                })
+            except Exception:
+                continue
+
+        intersections.sort(key=lambda i: i['areaPct'], reverse=True)
+        result = {
+            'precinct': precinct_name,
+            'year': year,
+            'precinctArea': p_area,
+            'dznIntersectCount': len(intersections),
+            'intersections': intersections
+        }
+        print(f"[Overlay] Intersections found = {len(intersections)}")
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        print('[Overlay] ERROR:', str(e))
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == "__main__":
     # You may need to install json5: pip install json5
     app.run(debug=True, port=5000)

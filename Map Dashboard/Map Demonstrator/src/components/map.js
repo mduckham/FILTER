@@ -5,6 +5,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import indicatorMetadata from './indicatorMetadata'; // IMPORTED METADATA
+import * as turf from '@turf/turf';
 
 // --- LLM API Setup ---
 const genAI = new GoogleGenerativeAI(process.env.REACT_APP_GEMINI_API_KEY);
@@ -122,6 +123,8 @@ export default function Map() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [isExporting, setIsExporting] = useState(false); // State for PDF export
+  const [mapLoaded, setMapLoaded] = useState(false); // Map style is loaded
+  const [layersReady, setLayersReady] = useState(false); // All thematic layers added
   // Multi-year indicator support
   const [availableYears, setAvailableYears] = useState([]); // e.g., [2011, 2016, 2021]
   const [hoveredYear, setHoveredYear] = useState(null); // kept for precinct text hover only
@@ -140,6 +143,7 @@ export default function Map() {
   // Dynamic global classification (0 to global max across years)
   const [jobsBreaks, setJobsBreaks] = useState(null); // 4 thresholds for 5 classes
   const [jobsMax, setJobsMax] = useState(null);
+  const [precinctNarrative, setPrecinctNarrative] = useState('');
 
   // Panel widths for map padding
   const leftPanelWidth = 288;
@@ -170,6 +174,7 @@ export default function Map() {
   'Number of jobs': { path: null, property: null }
   };
 
+  const DEFAULT_JOBS_YEAR = 2011;
   // Show three default indicators on initial load (randomly picked from supported indicators)
   useEffect(() => {
     // Only run on initial mount
@@ -177,11 +182,28 @@ export default function Map() {
     if (!supported.length) return;
     // If no suggestions shown yet and no search input, show defaults
     if (!showIndicators && indicators.length === 0 && !searchText.trim()) {
-      const shuffled = [...supported].sort(() => 0.5 - Math.random());
-      const picks = shuffled.slice(0, Math.min(3, shuffled.length));
+      const base = 'Number of jobs';
+      const others = supported.filter(n => n !== base);
+      const shuffled = [...others].sort(() => 0.5 - Math.random());
+      const extra = shuffled.slice(0, Math.min(2, shuffled.length));
+      const picks = [base, ...extra];
       setIndicators(picks.map(name => ({ indicator: name, score: 1 })));
       setShowIndicators(true);
+      // Ensure it's selected and focused at startup
+      setSelectedIndicator(base);
+      setPanelFocus({ type: 'indicator', name: base });
+      setSelectedYear(DEFAULT_JOBS_YEAR);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Default selection and visualisation: Number of jobs (2011)
+  useEffect(() => {
+    // Set preselected year to avoid being overridden by the 'latest year' effect
+    setSelectedYear(2011);
+    setSelectedIndicator('Number of jobs');
+    setPanelFocus({ type: 'indicator', name: 'Number of jobs' });
+    // No dependency: fire once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -338,6 +360,27 @@ export default function Map() {
     return () => { canceled = true; };
   }, []);
 
+  // Reapply dynamic breaks to paint once layers are ready
+  useEffect(() => {
+    if (!layersReady || !map.current || !map.current.isStyleLoaded()) return;
+    if (!jobsBreaks || jobsBreaks.length !== 4) return;
+    try {
+      const m = map.current;
+      const L = [
+        { id: 'number-of-jobs-2011-layer', prop: 'TotJob_11' },
+        { id: 'number-of-jobs-2016-layer', prop: 'TotJob_16' },
+        { id: 'number-of-jobs-2021-layer', prop: 'TotJob_21' }
+      ];
+      L.forEach(({ id, prop }) => {
+        if (!m.getLayer(id)) return;
+        const base = JOBS_PALETTE[0];
+        const stepExpr = ['step', ['to-number', ['get', prop]], base];
+        jobsBreaks.forEach((b, i) => { stepExpr.push(b, JOBS_PALETTE[i + 1] || JOBS_PALETTE[JOBS_PALETTE.length - 1]); });
+        m.setPaintProperty(id, 'fill-color', stepExpr);
+      });
+    } catch (_) { /* ignore */ }
+  }, [layersReady, jobsBreaks]);
+
   // When a DZN is selected from dropdown, compute time series via centroid PIP
   useEffect(() => {
     if (!selectedDZNCode) { setSelectedDZNJobs(null); return; }
@@ -390,6 +433,7 @@ export default function Map() {
 
     map.current.on('load', () => {
       adjustMapBounds();
+      setMapLoaded(true);
       // Add sources
       const sources = [
         { name: 'base-outline', path: '/data/fb-sa1-2021-WGS84-boundary.geojson' },
@@ -556,6 +600,26 @@ export default function Map() {
         });
       });
 
+      // Safety: default to show 2011 jobs layer on first load (others remain hidden)
+      const initialJobsLayer = 'number-of-jobs-2011-layer';
+      const outline2011 = `${initialJobsLayer}-hover-outline`;
+      const baseOutline2011 = `${initialJobsLayer}-base-outline`;
+      const dimMask2011 = `${initialJobsLayer}-dim-mask`;
+      try {
+        if (map.current.getLayer(initialJobsLayer)) {
+          map.current.setLayoutProperty(initialJobsLayer, 'visibility', 'visible');
+        }
+        if (map.current.getLayer(outline2011)) {
+          map.current.setLayoutProperty(outline2011, 'visibility', 'visible');
+        }
+        if (map.current.getLayer(baseOutline2011)) {
+          map.current.setLayoutProperty(baseOutline2011, 'visibility', 'visible');
+        }
+        if (map.current.getLayer(dimMask2011)) {
+          map.current.setLayoutProperty(dimMask2011, 'visibility', 'none');
+        }
+      } catch (_) { /* ignore */ }
+
       map.current.addLayer({
         id: 'base-outline-layer', type: 'line', source: 'base-outline-data-source',
         paint: { 'line-color': '#444', 'line-width': 0.2 }
@@ -648,6 +712,9 @@ export default function Map() {
           }
         }
       });
+
+      // Mark layers ready after all layers and handlers are added
+      setLayersReady(true);
     });
 
     return () => { if (map.current) { map.current.remove(); map.current = null; } };
@@ -681,7 +748,7 @@ export default function Map() {
 
   // Toggle visibility of indicator layers
   useEffect(() => {
-    if (!map.current || !map.current.isStyleLoaded()) return;
+    if (!map.current || !mapLoaded || !layersReady) return;
     const allLayerIds = [
         'diversity-of-education-qualification-layer', 
         'diversity-of-income-layer', 
@@ -705,11 +772,11 @@ export default function Map() {
   if (map.current.getLayer(dimMaskId)) map.current.setLayoutProperty(dimMaskId, 'visibility', 'none');
       }
     });
-  }, [selectedIndicator]);
+  }, [selectedIndicator, mapLoaded, layersReady]);
 
-  // Derive available years for multi-year indicators from metadata when panel focus changes
+  // Derive available years from metadata when panel focus changes (for jobs indicator and precinct view)
   useEffect(() => {
-    if (panelFocus && panelFocus.type === 'indicator' && panelFocus.name === 'Number of jobs') {
+    if (panelFocus && ((panelFocus.type === 'indicator' && panelFocus.name === 'Number of jobs') || panelFocus.type === 'precinct')) {
       const meta = indicatorMetadata['Number of jobs'];
       const scale = meta && meta['Spatial scale'] ? String(meta['Spatial scale']) : '';
       const years = Array.from(new Set((scale.match(/20\d{2}/g) || []).map(y => parseInt(y, 10)))).sort((a,b)=>a-b);
@@ -723,18 +790,16 @@ export default function Map() {
   useEffect(() => {
     if (panelFocus && panelFocus.type === 'indicator' && panelFocus.name === 'Number of jobs') {
       const years = availableYears.length ? availableYears : [2011, 2016, 2021];
-      const latest = Math.max(...years);
+      const preferred = years.includes(DEFAULT_JOBS_YEAR) ? DEFAULT_JOBS_YEAR : Math.max(...years);
       if (!selectedYear || !years.includes(selectedYear)) {
-        setSelectedYear(latest);
+        setSelectedYear(preferred);
       }
-    } else {
-      setSelectedYear(null);
     }
   }, [panelFocus, availableYears]);
 
   // Control visibility for Number of jobs layers based on selected indicator and selected year
   useEffect(() => {
-    if (!map.current || !map.current.isStyleLoaded()) return;
+    if (!map.current || !map.current.isStyleLoaded() || !layersReady) return;
 
     const layerIds = {
       2011: 'number-of-jobs-2011-layer',
@@ -762,12 +827,12 @@ export default function Map() {
 
     if (selectedIndicator === 'Number of jobs') {
       const years = availableYears.length ? availableYears : [2011, 2016, 2021];
-      const defaultYear = Math.max(...years);
+      const defaultYear = years.includes(DEFAULT_JOBS_YEAR) ? DEFAULT_JOBS_YEAR : Math.max(...years);
       const yearToShow = selectedYear || defaultYear;
       const layerToShow = layerIds[yearToShow];
       if (layerToShow) setVisibility(layerToShow, 'visible');
     }
-  }, [selectedIndicator, selectedYear, availableYears]);
+  }, [selectedIndicator, selectedYear, availableYears, mapLoaded, layersReady]);
 
   // Highlight selected DZN on map using feature-state 'selected'
   useEffect(() => {
@@ -810,11 +875,40 @@ export default function Map() {
     }
   }, [selectedDZNCode, selectedYear, panelFocus]);
 
+  // Keep dim-mask visible when a DZN is selected (so others stay de-emphasized like hover)
+  useEffect(() => {
+    if (!map.current || !map.current.isStyleLoaded() || !layersReady) return;
+    const isJobs = panelFocus && panelFocus.type === 'indicator' && panelFocus.name === 'Number of jobs';
+    const layerIds = {
+      2011: 'number-of-jobs-2011-layer',
+      2016: 'number-of-jobs-2016-layer',
+      2021: 'number-of-jobs-2021-layer'
+    };
+    // For all jobs layers, default dim-mask to none
+    ['number-of-jobs-2011-layer','number-of-jobs-2016-layer','number-of-jobs-2021-layer'].forEach((lid) => {
+      const dimId = `${lid}-dim-mask`;
+      if (map.current.getLayer(dimId)) {
+        try { map.current.setLayoutProperty(dimId, 'visibility', 'none'); } catch (_) {}
+      }
+    });
+    if (!isJobs) return;
+    const yr = selectedYear || 2011;
+    const activeLayer = layerIds[yr];
+    if (!activeLayer) return;
+    const dimMaskId = `${activeLayer}-dim-mask`;
+    if (map.current.getLayer(dimMaskId)) {
+      const hasSelection = !!selectedDZNCode;
+      // If there is a selection, keep the dim-mask visible so non-selected features are dimmed
+      try { map.current.setLayoutProperty(dimMaskId, 'visibility', hasSelection ? 'visible' : 'none'); } catch (_) {}
+    }
+  }, [selectedDZNCode, selectedYear, panelFocus, layersReady]);
+
   // Generate LLM description when panel focus changes
   useEffect(() => {
     if (!panelFocus) {
       setDynamicDescription('');
       setIsDescriptionLoading(false);
+      setPrecinctNarrative('');
       return;
     }
 
@@ -854,8 +948,19 @@ Synthesize this information into an engaging and informative paragraph of about 
 
 
             } else if (type === 'precinct') {
-                prompt = `You are a concise urban planning analyst. Write a short, engaging summary (around 60-80 words) about the "${name}" precinct within Melbourne's Fishermans Bend. Describe its key vision or main characteristics. If relevant, mention its relationship to the other precincts like Montague, Sandridge, and the Employment Precinct.`;
-
+                // Replace previous generic narrative with stats-driven jobs narrative for the active/default year
+                const yr = selectedYear || 2011;
+                try {
+                  const stats = await computePrecinctJobsOverlay(name, yr);
+                  const text = await generatePrecinctNarrativeWithLLM(stats);
+                  descriptionCache.current[cacheKey] = text;
+                  setPrecinctNarrative(''); // we fold narrative into dynamicDescription now
+                  setDynamicDescription(text);
+                } catch (e) {
+                  console.error('Failed to generate precinct narrative:', e);
+                  setDynamicDescription('');
+                }
+                return; // bail out, we've set dynamicDescription already
             }
 
             if (prompt) {
@@ -877,6 +982,24 @@ Synthesize this information into an engaging and informative paragraph of about 
     };
     generateDescription();
   }, [panelFocus]);
+
+  // Recompute precinct narrative when year changes while a precinct is selected
+  useEffect(() => {
+    if (!(panelFocus && panelFocus.type === 'precinct')) return;
+    const name = panelFocus.name;
+    const yr = selectedYear || 2011;
+    let canceled = false;
+    (async () => {
+      try {
+        const stats = await computePrecinctJobsOverlay(name, yr);
+        const text = await generatePrecinctNarrativeWithLLM(stats);
+        if (!canceled) {
+          setDynamicDescription(text);
+        }
+      } catch (e) { /* ignore */ }
+    })();
+    return () => { canceled = true; };
+  }, [selectedYear, panelFocus]);
 
   // Update map visual style when a precinct is highlighted from text
   useEffect(() => {
@@ -938,10 +1061,300 @@ Synthesize this information into an engaging and informative paragraph of about 
     setSelectedIndicator(newIndicator);
     setPanelFocus(newIndicator ? { type: 'indicator', name: newIndicator } : null);
     setTextHoveredPrecinct(null);
+    if (newIndicator === 'Number of jobs' && (!selectedYear || selectedYear !== 2011)) {
+      setSelectedYear(2011);
+    }
   };
 
   const handlePrecinctHover = (precinctName) => {
     setTextHoveredPrecinct(precinctName);
+  };
+
+  // Map current jobs breaks to linguistic bins
+  const jobsValueToClass = (val) => {
+    const br = jobsBreaks && jobsBreaks.length === 4 ? jobsBreaks : [591, 1097, 1356, 2742];
+    if (val < br[0]) return 0; // very low
+    if (val < br[1]) return 1; // low
+    if (val < br[2]) return 2; // medium
+    if (val < br[3]) return 3; // high
+    return 4; // very high
+  };
+  const CLASS_LABELS = ['very low', 'low', 'medium', 'high', 'very high'];
+
+  // Compute per-DZN intersections and class distribution for a precinct and year
+  const computePrecinctJobsOverlay = async (precinctName, year) => {
+    // First try server-side overlay for robustness (Shapely + pyproj)
+    try {
+      const resp = await fetch('http://127.0.0.1:5000/api/precinct_overlay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ precinctName, year })
+      });
+      if (resp.ok) {
+        const res = await resp.json();
+        if (res && typeof res.dznIntersectCount === 'number') {
+          // Map server output to our stats shape
+          const precinctArea = res.precinctArea || 0;
+          const intersections = (res.intersections || []).map(i => ({
+            code: i.code,
+            value: i.value,
+            classIndex: jobsValueToClass(i.value || 0),
+            classLabel: CLASS_LABELS[jobsValueToClass(i.value || 0)],
+            area: i.area,
+            areaPct: precinctArea > 0 ? i.area / precinctArea : 0
+          }));
+          const areaByClass = [0,0,0,0,0];
+          const countByClass = [0,0,0,0,0];
+          intersections.forEach(it => { areaByClass[it.classIndex] += it.area; countByClass[it.classIndex] += 1; });
+          const classes = CLASS_LABELS.map((label, idx) => ({ index: idx, label, areaShare: precinctArea>0? (areaByClass[idx]/precinctArea):0, count: countByClass[idx] }))
+            .filter(c => c.areaShare > 0)
+            .sort((a,b)=>b.areaShare-a.areaShare);
+          const presentClasses = classes.map(c => c.label);
+          intersections.sort((a,b)=>b.areaPct-a.areaPct);
+          console.log(`[Server Overlay] ${precinctName} (${year}):`, res);
+          return {
+            precinct: precinctName,
+            year,
+            precinctArea,
+            dznIntersectCount: res.dznIntersectCount || intersections.length,
+            intersections,
+            classes,
+            presentClasses,
+            totals: { areaByClass, countByClass, precinctArea }
+          };
+        }
+      }
+    } catch (_) {
+      // Fall through to client-side fallback
+    }
+
+    // Fallback: client-side overlay using Turf (clean + project path below)
+    // Prefer cached jobs data if available
+    const propByYear = { 2011: 'TotJob_11', 2016: 'TotJob_16', 2021: 'TotJob_21' };
+    const codeByYear = { 2011: 'DZN_CODE11', 2016: 'DZN_CODE16', 2021: 'DZN_CODE21' };
+    const yrToUrl = { 2011: '/data/Number_of_Jobs_DZN_11.geojson', 2016: '/data/Number_of_Jobs_DZN_16.geojson', 2021: '/data/Number_of_Jobs_DZN_21.geojson' };
+    const jobsProp = propByYear[year] || 'TotJob_21';
+    const codeProp = codeByYear[year] || 'DZN_CODE21';
+    let jobsFC = jobsGeoByYear.current[year];
+    if (!jobsFC) {
+      const resJ = await fetch(yrToUrl[year] || yrToUrl[2021]);
+      if (!resJ.ok) throw new Error('Failed to fetch jobs');
+      jobsFC = await resJ.json();
+    }
+    const resP = await fetch('/data/fb-precincts-official-boundary.geojson');
+    if (!resP.ok) throw new Error('Failed to fetch precincts');
+    const precincts = await resP.json();
+    const precinctFeat = precincts.features.find(f => (f.properties?.name === precinctName));
+    if (!precinctFeat) throw new Error('Precinct not found');
+
+    // Ensure geometries are in WGS84 (EPSG:4326)
+    // Check CRS and log for debugging
+    const precinctCRS = precincts.crs?.properties?.name || 'unknown';
+    const jobsCRS = jobsFC.crs?.properties?.name || 'unknown';
+    console.log(`[CRS Check] Precinct CRS: ${precinctCRS}, Jobs CRS: ${jobsCRS}`);
+    
+    // GeoJSON spec assumes WGS84 if no CRS specified, but validate geometries
+    // Helper: robustify geometry -> FeatureCollection of simple Polygons
+    const toCleanPolygonParts = (geom, tagProps = {}) => {
+      if (!geom) return [];
+      const feat = turf.feature(geom, tagProps);
+      // Rewind for proper ring orientation
+      let rew = feat;
+      try { rew = turf.rewind(feat, { reverse: false }); } catch (_) {}
+      // Unkink to split self-intersections if any
+      let unk;
+      try { unk = turf.unkinkPolygon(rew); } catch (_) { unk = turf.featureCollection([rew]); }
+      // Flatten MultiPolygons to individual Polygons
+      const flat = [];
+      for (const f of unk.features) {
+        if (!f || !f.geometry) continue;
+        if (f.geometry.type === 'Polygon') {
+          flat.push(f);
+        } else if (f.geometry.type === 'MultiPolygon') {
+          for (const rings of f.geometry.coordinates) {
+            flat.push(turf.polygon(rings, tagProps));
+          }
+        }
+      }
+      // Filter degenerate rings (very small or invalid)
+      const cleaned = flat.filter((f) => {
+        try { return turf.area(f) > 0; } catch { return false; }
+      });
+      return cleaned;
+    };
+
+    // Project lon/lat (deg) to Web Mercator meters for stable planar ops
+    const R = 6378137.0;
+    const lonLatToMerc = ([lon, lat]) => {
+      const x = R * (lon * Math.PI / 180);
+      const y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2));
+      return [x, y];
+    };
+    const mercToLonLat = ([x, y]) => {
+      const lon = (x / R) * 180 / Math.PI;
+      const lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI;
+      return [lon, lat];
+    };
+    const projectCoords = (coords) => coords.map(pt => Array.isArray(pt[0]) ? projectCoords(pt) : lonLatToMerc(pt));
+    const projectFeature = (feat) => {
+      const g = feat.geometry;
+      if (!g) return feat;
+      if (g.type === 'Polygon') {
+        return turf.polygon(projectCoords(g.coordinates), feat.properties || {});
+      }
+      if (g.type === 'MultiPolygon') {
+        return turf.multiPolygon(projectCoords(g.coordinates), feat.properties || {});
+      }
+      return feat;
+    };
+    // Compute planar area in m^2 for projected Polygon/MultiPolygon
+    const polygonRingArea = (ring) => {
+      let sum = 0;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i]; const [xj, yj] = ring[j];
+        sum += (xj * yi - xi * yj);
+      }
+      return Math.abs(sum) / 2;
+    };
+    const planarArea = (geom) => {
+      if (!geom) return 0;
+      const g = geom.type ? geom : { type: 'Polygon', coordinates: [] };
+      if (g.type === 'Polygon') {
+        const [outer, ...holes] = g.coordinates;
+        let a = polygonRingArea(outer || []);
+        for (const h of holes || []) a -= polygonRingArea(h);
+        return Math.max(0, a);
+      }
+      if (g.type === 'MultiPolygon') {
+        let a = 0;
+        for (const poly of g.coordinates) {
+          const [outer, ...holes] = poly;
+          a += polygonRingArea(outer || []);
+          for (const h of holes || []) a -= polygonRingArea(h);
+        }
+        return Math.max(0, a);
+      }
+      return 0;
+    };
+
+  const precinctParts = toCleanPolygonParts(precinctFeat.geometry, { name: precinctName });
+    if (!precinctParts.length) throw new Error('Precinct geometry invalid after cleaning');
+  // Project precinct parts to Mercator for robust clipping
+  const precinctPartsMerc = precinctParts.map(projectFeature);
+  // Merge parts for bbox purposes but keep array for per-part intersections
+  const precinctPoly = precinctParts.length === 1 ? precinctParts[0] : turf.featureCollection(precinctParts);
+    
+  // Compute precinct area (sum of parts)
+  // Compute precinct area in projected space (m^2)
+  const precinctArea = precinctPartsMerc.reduce((acc, f) => acc + planarArea(f.geometry), 0);
+    console.log(`[Precinct Area] ${precinctName}: ${precinctArea.toFixed(2)} m²`);
+    if (!precinctArea) throw new Error('Zero precinct area');
+
+    const areaByClass = [0,0,0,0,0];
+    const countByClass = [0,0,0,0,0];
+    let dznIntersectCount = 0;
+    const intersections = [];
+    
+    console.log(`[Starting Intersection] Testing ${jobsFC.features?.length || 0} DZN features against ${precinctName}`);
+
+    for (const f of (jobsFC.features || [])) {
+      try {
+        // Clean and flatten DZN geometry into polygon parts
+        const dznParts = toCleanPolygonParts(f.geometry, { code: f.properties?.[codeProp] || '' });
+        if (!dznParts.length) continue;
+        const dznPartsMerc = dznParts.map(projectFeature);
+
+        // Quick bbox precheck using overall precinct bbox vs each dzn part
+        let accumArea = 0;
+        for (let pi = 0; pi < precinctPartsMerc.length; pi++) {
+          const pPartM = precinctPartsMerc[pi];
+          const pB = turf.bbox(pPartM);
+          for (let di = 0; di < dznPartsMerc.length; di++) {
+            const dPartM = dznPartsMerc[di];
+            const dB = turf.bbox(dPartM);
+            const bboxOverlap = !(
+              dB[2] < pB[0] || dB[0] > pB[2] || dB[3] < pB[1] || dB[1] > pB[3]
+            );
+            if (!bboxOverlap) continue;
+            // Fast boolean intersects to skip costly intersect when disjoint
+            let maybe;
+            try { maybe = turf.booleanIntersects(pPartM, dPartM); } catch { maybe = true; }
+            if (!maybe) continue;
+            // Compute precise intersection
+            let inter = null;
+            try { inter = turf.intersect(pPartM, dPartM); } catch { inter = null; }
+            if (!inter) continue;
+            const aPart = (() => { try { return planarArea(inter.geometry) || 0; } catch { return 0; } })();
+            if (aPart > 0) accumArea += aPart;
+          }
+        }
+        if (accumArea <= 0) continue;
+        const val = parseFloat(f.properties?.[jobsProp] ?? '0');
+        const cls = jobsValueToClass(isFinite(val) ? val : 0);
+        areaByClass[cls] += accumArea;
+        countByClass[cls] += 1;
+        dznIntersectCount += 1;
+        const code = f.properties?.[codeProp] || '';
+        intersections.push({
+          code,
+          value: isFinite(val) ? val : 0,
+          classIndex: cls,
+          classLabel: CLASS_LABELS[cls],
+          area: accumArea,
+          areaPct: accumArea / precinctArea
+        });
+      } catch (_) { /* skip invalid geometries */ }
+    }
+
+    const shareByClass = areaByClass.map(a => a / precinctArea);
+    const classes = CLASS_LABELS.map((label, i) => ({ index: i, label, areaShare: shareByClass[i], count: countByClass[i] }))
+      .filter(c => c.areaShare > 0);
+    classes.sort((a,b) => b.areaShare - a.areaShare);
+    intersections.sort((a,b) => b.areaPct - a.areaPct);
+    const presentClasses = classes.map(c => c.label);
+    
+    // Debug log to verify spatial analysis
+  console.log(`[Precinct Overlay] ${precinctName} (${year}):`);
+  console.log(`  - Found ${dznIntersectCount} intersected DZN areas`);
+  const totalInterArea = intersections.reduce((s,i)=>s+i.area,0);
+  console.log(`  - Total intersection area: ${totalInterArea.toFixed(2)} m² (${(totalInterArea/precinctArea*100).toFixed(1)}% of precinct)`);
+    console.log(`  - Classes present: ${presentClasses.join(', ')}`);
+    console.log(`  - Top intersections:`, intersections.slice(0, 3).map(i => `${i.code} (${(i.areaPct*100).toFixed(1)}%, ${i.classLabel})`));
+    
+    return {
+      precinct: precinctName,
+      year,
+      precinctArea,
+      dznIntersectCount,
+      intersections, // per-DZN with areaPct and class
+      classes, // sorted by area share desc
+      presentClasses,
+      totals: { areaByClass, countByClass, precinctArea }
+    };
+  };
+
+  const generatePrecinctNarrativeWithLLM = async (stats) => {
+    const { precinct, year, dznIntersectCount, intersections, classes, presentClasses } = stats;
+    const summary = {
+      precinct,
+      year,
+      dznIntersectCount,
+      intersectedDZNs: intersections.map(i => ({ code: i.code, class: i.classLabel, areaPct: Math.round(i.areaPct * 100) })),
+      classProportions: classes.map(c => ({ class: c.label, areaSharePct: Math.round(c.areaShare * 100), dznCount: c.count })),
+      classesPresent: presentClasses
+    };
+    const prompt = `You are an urban data analyst. Using ONLY the structured data below, write a clear narrative (80–120 words) for total jobs in the precinct.
+
+Precinct and year: ${precinct} (${year})
+Data (JSON):\n\n${JSON.stringify(summary, null, 2)}\n\n
+Write in this order:
+1) Briefly state which classes (very low → very high) intersect the precinct.
+2) Summarize proportions per class using provided percentages.
+3) Conclude which class(es) dominate (top 1–2 by area share).
+Also mention how many DZN areas intersect. Keep it factual, do not invent numbers beyond those given.`;
+    const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
+    const result = await model.generateContent(prompt);
+    return result.response.text();
   };
 
   const handleExportToPDF = async () => {
@@ -1177,12 +1590,13 @@ Synthesize this information into an engaging and informative paragraph of about 
                 )}
                 {/* (chart moved to bottom section) */}
                 {/* Year selector chips (click to switch) */}
-                {panelFocus.type === 'indicator' && panelFocus.name === 'Number of jobs' && availableYears.length > 0 && (
+                {((panelFocus.type === 'indicator' && panelFocus.name === 'Number of jobs') || panelFocus.type === 'precinct') && availableYears.length > 0 && (
                   <div style={{ marginTop: '0.75rem' }}>
                     <div style={{ fontSize: '0.9rem', color: '#495057', marginBottom: '0.25rem' }}>Select a year:</div>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {availableYears.map((y) => {
-                        const isActive = (selectedYear || Math.max(...availableYears)) === y;
+                        const fallback = availableYears.includes(2011) ? 2011 : Math.max(...availableYears);
+                        const isActive = (selectedYear || fallback) === y;
                         return (
                           <button
                             key={y}
