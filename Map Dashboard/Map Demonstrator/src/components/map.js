@@ -24,7 +24,29 @@ const InteractiveDescription = ({ text, keywords, colors, onKeywordHover, onKeyw
       {parts.map((part, index) => {
         // First, check if the part is a bolded section.
         if (part.startsWith('**') && part.endsWith('**')) {
-          return <strong key={index}>{part.substring(2, part.length - 2)}</strong>;
+          const inner = part.substring(2, part.length - 2);
+          const kw = keywords.find(kw => kw.toLowerCase() === inner.toLowerCase());
+          if (kw) {
+            // Treat bolded keywords as interactive too
+            return (
+              <strong
+                key={index}
+                style={{
+                  color: colors[kw] || '#000',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  padding: '2px 0',
+                  borderBottom: `2px solid ${colors[kw] || '#000'}`
+                }}
+                onMouseEnter={() => onKeywordHover(kw)}
+                onMouseLeave={() => onKeywordHover(null)}
+                onClick={() => onKeywordClick && onKeywordClick(kw)}
+              >
+                {inner}
+              </strong>
+            );
+          }
+          return <strong key={index}>{inner}</strong>;
         }
 
         // Next, check if the part is an interactive keyword.
@@ -915,8 +937,9 @@ export default function Map() {
     const generateDescription = async () => {
         setIsDescriptionLoading(true);
         setDynamicDescription('');
-        const { type, name } = panelFocus;
-        const cacheKey = `${type}_${name}`;
+  const { type, name } = panelFocus;
+  // Include year in cache key for precinct narratives to avoid stale text when switching years
+  const cacheKey = type === 'precinct' ? `${type}_${name}_${selectedYear || ''}` : `${type}_${name}`;
 
         if (descriptionCache.current[cacheKey]) {
             setDynamicDescription(descriptionCache.current[cacheKey]);
@@ -948,13 +971,13 @@ Synthesize this information into an engaging and informative paragraph of about 
 
 
             } else if (type === 'precinct') {
-                // Replace previous generic narrative with stats-driven jobs narrative for the active/default year
+                // Deterministic narrative using computed overlay stats
                 const yr = selectedYear || 2011;
                 try {
                   const stats = await computePrecinctJobsOverlay(name, yr);
-                  const text = await generatePrecinctNarrativeWithLLM(stats);
+                  const text = generatePrecinctNarrativeDeterministic(stats);
                   descriptionCache.current[cacheKey] = text;
-                  setPrecinctNarrative(''); // we fold narrative into dynamicDescription now
+                  setPrecinctNarrative('');
                   setDynamicDescription(text);
                 } catch (e) {
                   console.error('Failed to generate precinct narrative:', e);
@@ -992,7 +1015,7 @@ Synthesize this information into an engaging and informative paragraph of about 
     (async () => {
       try {
         const stats = await computePrecinctJobsOverlay(name, yr);
-        const text = await generatePrecinctNarrativeWithLLM(stats);
+        const text = generatePrecinctNarrativeDeterministic(stats);
         if (!canceled) {
           setDynamicDescription(text);
         }
@@ -1333,28 +1356,58 @@ Synthesize this information into an engaging and informative paragraph of about 
     };
   };
 
-  const generatePrecinctNarrativeWithLLM = async (stats) => {
-    const { precinct, year, dznIntersectCount, intersections, classes, presentClasses } = stats;
-    const summary = {
-      precinct,
-      year,
-      dznIntersectCount,
-      intersectedDZNs: intersections.map(i => ({ code: i.code, class: i.classLabel, areaPct: Math.round(i.areaPct * 100) })),
-      classProportions: classes.map(c => ({ class: c.label, areaSharePct: Math.round(c.areaShare * 100), dznCount: c.count })),
-      classesPresent: presentClasses
-    };
-    const prompt = `You are an urban data analyst. Using ONLY the structured data below, write a clear narrative (80–120 words) for total jobs in the precinct.
+  // Deterministic precinct narrative generator (exact template, no LLM)
+  const generatePrecinctNarrativeDeterministic = (stats) => {
+    const { precinct, year, dznIntersectCount, classes } = stats || {};
+    const hasData = Array.isArray(classes) && classes.length > 0;
+    // Resolve spatial scale label from metadata when available; fallback to 'DZN'
+    const meta = indicatorMetadata && indicatorMetadata['Number of jobs'];
+    const spatialScaleFromMeta = meta && typeof meta['Spatial scale'] === 'string' ? meta['Spatial scale'] : '';
+    let spatialScale = 'DZN';
+    if (/\bDZN\b/i.test(spatialScaleFromMeta)) spatialScale = 'DZN';
+    else if (/Destination\s*Zone/i.test(spatialScaleFromMeta)) spatialScale = 'Destination Zone (DZN)';
 
-Precinct and year: ${precinct} (${year})
-Data (JSON):\n\n${JSON.stringify(summary, null, 2)}\n\n
-Write in this order:
-1) Briefly state which classes (very low → very high) intersect the precinct.
-2) Summarize proportions per class using provided percentages.
-3) Conclude which class(es) dominate (top 1–2 by area share).
-Also mention how many DZN areas intersect. Keep it factual, do not invent numbers beyond those given.`;
-    const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+    const indicatorName = 'Number of jobs';
+
+    if (!hasData) {
+      return `The **${precinct}** precinct intersects with **0** **${spatialScale}** areas based on the **${year}** dataset. Within the precinct, the **${indicatorName}** classes include none. Therefore, the **${precinct}** precinct is dominantly characterized by a very low level of **${indicatorName}**.`;
+    }
+
+    // Helper formatters
+    const fmtPct = (x) => {
+      const n = (x || 0) * 100;
+      const s = n.toFixed(1);
+      return s.endsWith('.0') ? String(Math.round(n)) : s;
+    };
+    const joinList = (arr) => {
+      if (!arr || !arr.length) return '';
+      if (arr.length === 1) return arr[0];
+      if (arr.length === 2) return `${arr[0]} and ${arr[1]}`;
+      return `${arr.slice(0, -1).join(', ')}, and ${arr[arr.length - 1]}`;
+    };
+
+    // Classes are sorted by areaShare desc
+    const presentLabels = classes.map((c) => `**${c.label}**`);
+    const dominant = classes[0];
+    const others = classes.slice(1);
+
+    // Lead sentence per template
+    const s1 = `The **${precinct}** precinct intersects with **${dznIntersectCount}** **${spatialScale}** area${dznIntersectCount === 1 ? '' : 's'} based on the **${year}** dataset.`;
+    // Classes present
+    const s2 = `Within the precinct, the **${indicatorName}** classes include ${joinList(presentLabels)}.`;
+    // Dominant class coverage
+    const s3 = `The “**${dominant.label}**” class covers **${fmtPct(dominant.areaShare)}%** of the precinct area.`;
+    // Contrast sentence for other classes (if any)
+    let s4 = '';
+    if (others.length > 0) {
+      const otherLabels = others.map((c) => `**${c.label}**`);
+      const otherPcts = others.map((c) => `**${fmtPct(c.areaShare)}%**`);
+      s4 = ` In contrast, ${joinList(otherLabels)} account for ${joinList(otherPcts)}, respectively.`;
+    }
+    // Therefore conclusion
+    const s5 = ` Therefore, the **${precinct}** precinct is dominantly characterized by a **${dominant.label}** level of **${indicatorName}**.`;
+
+    return `${s1} ${s2} ${s3}${s4}${s5}`;
   };
 
   const handleExportToPDF = async () => {
@@ -1571,7 +1624,10 @@ Also mention how many DZN areas intersect. Keep it factual, do not invent number
                 { min: br[2], max: br[3] },
                 { min: br[3], max: maxV }
               ];
-              items = ranges.map((b, i) => ({ color: JOBS_PALETTE[i], label: `${Math.round(b.min).toLocaleString()} - ${Math.round(b.max).toLocaleString()}` }));
+              items = ranges.map((b, i) => ({
+                color: JOBS_PALETTE[i],
+                label: `${Math.round(b.min).toLocaleString()} - ${Math.round(b.max).toLocaleString()} (${CLASS_LABELS[i]})`
+              }));
             }
             return <Legend ref={legendRef} title={legendData[selectedIndicator].title} items={items} />;
           })()
@@ -1636,10 +1692,13 @@ Also mention how many DZN areas intersect. Keep it factual, do not invent number
                   ];
                   const width = 260, height = 160, pad = { l: 64, r: 12, t: 12, b: 28 };
 
-                  const maxV = Math.max(1, ...data.map(d => d.value));
+                  // Consistent axis domain across all charts/years: 0 -> global jobsMax
+                  const fallbackMax = Math.max(1, ...data.map(d => d.value));
+                  const axisMax = (jobsMax && isFinite(jobsMax)) ? jobsMax : fallbackMax;
+
                   const barW = (width - pad.l - pad.r) / data.length * 0.45;
                   const xStep = (width - pad.l - pad.r) / data.length;
-                  const yScale = (v) => pad.t + (height - pad.t - pad.b) * (1 - v / maxV);
+                  const yScale = (v) => pad.t + (height - pad.t - pad.b) * (1 - v / axisMax);
                   const dznLabel = selectedDZNCode || hoveredDZNCode;
                   const title = dznLabel ? `Total jobs by year` : 'Total jobs by year';
                   const yAxisLabel = (legendData['Total jobs'] && legendData['Total jobs'].title) || 'Total jobs (count)';
@@ -1648,8 +1707,8 @@ Also mention how many DZN areas intersect. Keep it factual, do not invent number
                       <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#374151', marginBottom: '0.25rem' }}>{title}</div>
                       <svg width={width} height={height} style={{ background: '#fff', border: '1px solid #e9ecef', borderRadius: 6 }}>
                         <text x={pad.l - 44} y={height / 2} transform={`rotate(-90 ${pad.l - 44} ${height / 2})`} fontSize={11} textAnchor="middle" fill="#495057">{yAxisLabel}</text>
-                        {Array.from({ length: 4 }).map((_, i) => {
-                          const v = (maxV / 4) * i; const y = yScale(v);
+                        {Array.from({ length: 5 }).map((_, i) => {
+                          const v = (axisMax / 4) * i; const y = yScale(v);
                           return (
                             <g key={i}>
                               <line x1={pad.l} x2={width - pad.r} y1={y} y2={y} stroke="#f1f3f5" />

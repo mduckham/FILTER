@@ -103,12 +103,31 @@ def load_geojson(path):
         return json.load(f)
 
 def guess_epsg_from_geojson(fc):
-    # Default to WGS84 if unspecified
-    name = (fc.get('crs', {}).get('properties', {}) or {}).get('name', '')
-    if 'EPSG::4283' in name or 'EPSG:4283' in name:
-        return 4283
-    if 'CRS84' in name or '4326' in name:
+    """
+    Best-effort EPSG extraction from a GeoJSON's crs.name value.
+    Falls back to 4326 (WGS84/CRS84) if missing/unknown.
+    Handles patterns like:
+      - urn:ogc:def:crs:EPSG::4283
+      - EPSG:7844
+      - urn:ogc:def:crs:OGC:1.3:CRS84
+    """
+    name = str((fc.get('crs', {}).get('properties', {}) or {}).get('name', ''))
+    upper = name.upper()
+    # Direct EPSG numeric detection
+    m = re.search(r"EPSG(?:::|:)[^0-9]*(\d+)", name, re.IGNORECASE)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            pass
+    # Common aliases
+    if 'CRS84' in upper:
         return 4326
+    if 'EPSG::4283' in upper or 'EPSG:4283' in upper or 'GDA94' in upper:
+        return 4283
+    if 'EPSG::7844' in upper or 'EPSG:7844' in upper or 'GDA2020' in upper:
+        return 7844
+    # Default to WGS84
     return 4326
 
 def transform_coords(coords, transformer):
