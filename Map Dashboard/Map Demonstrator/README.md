@@ -29,9 +29,9 @@ The backend which is a RAG-based system for selecting the most relevant indicato
 ### API Keys for LLM and MapTiler 
 - Provide your Gemini API key and MapTiler API key in the `.env.local` file. 
 
-![alt text](image.png)
+<!-- ![alt text](image.png) -->
 
-## ☁️ Cloud Deployment (AWS)
+## Cloud Deployment (AWS)
 
 This project is deployed using a split-stack architecture on AWS to handle the separate React frontend and Python backend.
 
@@ -63,3 +63,5 @@ The React/MapLibre application is built and hosted via Amplify.
 ### Contributors
 - Mohammad Kazemi Beydokhti
 - Matt Duckham
+
+![alt text](<Screenshot 2025-12-11 at 11.51.37 am.png>)
