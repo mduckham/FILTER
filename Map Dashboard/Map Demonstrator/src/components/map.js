@@ -3796,8 +3796,8 @@ Do not invent or infer any data values, statistics, or trends.`;
           };
         }
       }
-    } catch (_) {
-      // ignore and fallback
+    } catch (err) {
+      console.warn('Precinct overlay server call failed; falling back to client overlay:', err);
     }
     if (/industry|special/i.test(ind)) {
       return await computePrecinctSpecOverlay(precinctName, year);
