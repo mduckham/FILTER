@@ -371,11 +371,12 @@ export default function Map() {
   // Definitions for interactive text highlighting
   const PRECINCT_NAMES = ['Montague', 'Sandridge', 'Lorimer', 'Wirraway', 'Employment Precinct'];
   const PRECINCT_COLORS = {
-    'Montague': '#3498db',
-    'Sandridge': '#e74c3c',
-    'Lorimer': '#2ecc71',
-    'Wirraway': '#f39c12',
-    'Employment Precinct': '#9b59b6'
+    // Match attached photo: Montague (cyan), Sandridge (orange), Lorimer (blue), Wirraway (green), Employment Precinct (red)
+    'Montague': '#14b8a6',
+    'Sandridge': '#f59e0b',
+    'Lorimer': '#2563EB',
+    'Wirraway': '#2ecc71',
+    'Employment Precinct': '#e53935'
   };
 
   // Landing description for Fishermans Bend Framework (shown on first load)
