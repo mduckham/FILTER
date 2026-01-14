@@ -38281,5 +38281,8 @@ Map Dashboard/Map Demonstrator/.env.local
 Map Dashboard/Map Demonstrator/.env.local
 /Map_Dashboard/Map_Demonstrator/node_modules
 /Map_Dashboard/Map_Demonstrator/Data for indicators
-/Map Dashboard/Map Demonstrator_backend
-/Map_Dashboard/Map Demonstrator_backend
+
+# Map Demonstrator_backend generated/secret files
+Map Dashboard/Map Demonstrator_backend/build/
+Map Dashboard/Map Demonstrator_backend/.env
+Map Dashboard/Map Demonstrator_backend/.env.local
