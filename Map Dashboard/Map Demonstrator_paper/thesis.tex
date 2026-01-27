@@ -1,0 +1,783 @@
+\chapter[Qualitative spatial questions with LLMs]%
+{Qualitative spatial questions with LLMs}\label{chapter4}
+
+
+
+
+% This chapter begins by discussing geospatial queries based on a qualitative spatial representation derived from an ontology. The chapter focuses specifically on using the Simple Event Model (SEM) ontology to answer geo‑event questions in Section~\ref{meth-ch2}. The section explains how SEM’s core classes---\textit{Event}, \textit{Place}, \textit{Actor} and \textit{Time}---together with a pattern‑based entity detection pipeline can be used to transform natural‑language geo‑event questions into executable GIS workflows and to post‑process the resulting solutions. Section~\ref{sec:ResultDis} provides the results of extracting geo-event semantics from the question corpus and automated composition of workflows. Finally, I summarise the chapter in Section~\ref{summary-ch2}.
+
+Where the previous chapter aimed to first classify geospatial questions using NER, as the basis for automated GeoQA workflows, this chapter---situated within the geoparsing component of GeoQA---turns to another NLP technique---large language models---to extend existing question corpora. The chapter demonstrates the potential for instructing large language models (LLMs) with explicit spatial representations, particularly those involving spatial and temporal relations. First, spatial and temporal relation representations are explored in existing GeoQA corpora in Section~\ref{introduction}. Identified gaps in these data sets lead to a conceptual model of GeoQA questions, built on a classification of functional roles in geographic questions, rather than named entities (Section~\ref{relational_model}). Building on this model, a pre-trained generative AI model (GPT-3.5) is instructed to generate geographic questions and to label them with spatial and temporal relations in order to extend existing question corpora (Section~\ref{methodology}). Section~\ref{results} explores the results and evaluation of the approach, including comparison with existing question corpora based on the conceptual model. A discussion of results and summary of chapter are presented in Section~\ref{discussion} and Section~\ref{summary3_1}. 
+
+
+\section{Spatial and temporal relations in GeoQA corpora}
+\label{introduction}
+
+GeoQA holds the potential to simplify user interaction with geographic information, making access to geospatial information and analysis more accessible to a wider variety of people via natural language questions. However, it is acknowledged that modelling the spatial and temporal relations arising in such questions poses specific challenges in order to derive useful and valid answers \parencite{scheider_pragmatic_2023}.   
+
+One particular challenge is related to the \textit{interpretation} of geographic questions when retrieving answers. We have seen that questions in GeoQA may refer to multiple geographic entities and relations, such as place names and locations (e.g., ``Where is Melbourne?'') \parencite{nguyen_ms_2016}, spatial relations (e.g., ``Is Edinburgh west of Glasgow?'') \parencite{punjani_template-based_2018} and spatiotemporal relations (e.g., ``Which Romanian writers were living in the USA in 2004?'') \parencite{santos_gikiclef_2010}. The different roles of spatial entities and relations in such questions need to be correctly \textit{interpreted} in order for the correct answers to be accessed.
+% To this end, I need to be able to correctly \textit{interpret the roles of spatial entities and relations} in such questions. 
+
+However, %this latter problem comes with its own challenges. A thorough survey of qualitative spatial and temporal calculi, such as the well-known region connection calculus (RCC) for topological relations \parencite{randell_spatial_1992} and cardinal direction calculus (CDC) for cardinal relations \parencite{frank_qualitative_1992}, has been proposed in \textcite{dylla_survey_2017}. Yet, 
+relatively little attention in GeoQA has been devoted to the interpretation of spatial and temporal relations in geographic questions. For example, when looking at the five most prominent geographic question corpora---GeoAnQu \parencite{xu_extracting_2020}, Geoquery \parencite{zelle_1996-learning_nodate}, Giki \parencite{santos_gikiclef_2010}, GeoCLEF \parencite{clough_clef_2006}, and GeoQuestions201 \parencite{punjani_template-based_2018}---the percentage of questions that make use of specific kinds of spatial relations, such as cardinal direction relations \parencite{punjani_template-based_2018}, seems very low (less than 5\% of questions, with even lower representation of temporal relations). % in these corpora is less than 5\%, and this is even lower for temporal relations. 
+Instead, the spatial relations present in these corpora tend to be highly biased towards one specific form of topological relation---containment, via the spatial preposition ``in''---neglecting other forms of topological relations. For example, ``in'' is the only topological relation found in any questions in the GeoAnQu corpus. Therefore, a key challenge facing current corpora is the issue of whether they are sufficiently representative of the diverse set of spatial temporal relations in geographic questions. In turn, we might ask to what extent these corpora are a sufficient basis for training models for answering these types of questions.
+
+\subsection{LLMs and question generation}
+The recent progress in transformer-based pre-trained Large Language Models (LLMs), such as GPT-4, presents new opportunities for diverse language generation tasks with he aim of improving the quality of GeoQA systems \parencite{roberts_gpt4geo_2023, bhandari_are_2023, mai_towards_2022}. %Similar vector embedding approaches based on graphs have also been used in GeoQA recently, e.g., knowledge graph embeddings \parencite{mai2020se}. 
+
+On the one hand, LLMs might provide a mechanism to address the lack of variety of topological relationships, discussed above, because they are trained on a very large number of examples with diverse question contexts. On the other hand, such systems are themselves inevitably prone to significant bias. LLMs trained on Web documents already have access to the existing questions (and biases) found in general-purpose QA systems. \textcite{nyamsuren_semantic_2023} found that general-purpose corpora extracted from the Web (such as MS MARCO, based on Bing query logs\footnote{https://microsoft.github.io/msmarco/}, or Giki based on Wikipedia, see \textcite{xu_extracting_2020}) are \textit{not} able to represent the complexity needed for the kinds of questions posed in geo-analytical QA. Such challenges associated with using LLMs for special purposes have led to adaptations, such as fine-tuning pre-trained LLMs for a smaller, task-specific datasets \parencite{radford_improving_2018}. 
+%similar bias. 
+
+What might be a general approach to de-biasing LLMs for GeoQA corpora extension? GeoQA systems have often made use of \textit{symbolic} AI approaches, which could be used to enrich and de-bias existing systems by integrating knowledge-based models. For example, \textcite{punjani_template-based_2018} modeled cardinal relations as a part of a GeoSPARQL query (Listing \ref{lst:mySparqlExample}). Unfortunately, the implementation incorrectly implemented the CDC relation from \textcite{frank_qualitative_1992} with four directions, which can lead to incorrect answers. Moreover, neither their proposed geoparser nor the implemented GeoSPARQL queries incorporate the full range of conceptual relations to capture different possibilities of spatial and temporal relations in the questions. Later chapters in this these will similarly explore the application of spatial calculi to improve the question-answering capabilities of GeoQA systems. 
+
+\begin{lstlisting}[
+   language=SPARQL,
+   caption={Example GeoSPARQL query from Punjani et al., 2018},
+   label={lst:mySparqlExample}
+]
+
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+ASK {
+  ?county rdfs:label "Oxfordshire" ;
+          <http://www.opengis.net/ont/geosparql#hasGeometry> ?geo1 .
+  ?geo1 <http://www.opengis.net/ont/geosparql#asWKT> ?wkt1 .
+
+  ?county2 rdfs:label "Essex" ;
+           <http://www.opengis.net/ont/geosparql#hasGeometry> ?geo2 .
+  ?geo2 <http://www.opengis.net/ont/geosparql#asWKT> ?wkt2 .
+
+  FILTER( <http://example.org/function/rel>(?wkt1, ?wkt2) )
+}
+
+\end{lstlisting}
+
+
+In another example, the CCD core concepts of spatial information proposed by \textcite{kuhn_core_2012} and already encountered have been proposed as a foundation formulating and interpreting geo-analytical questions. \textcite{xu_grammar_2023} proposed a core concept transformation grammar to automatically formulate and interpret an English question sentence in terms of core concepts and functional roles, used to answer questions using GIS workflows \parencite{sinton_inherent_1978}. \textcite{nyamsuren_semantic_2023} utilized Xu et al.'s parser over five different corpora to compare their semantic complexity. However, by filtering out the results of this parser for relational queries, the approach fails to correctly parse queries including topological and cardinal direction relations. For instance in the question ``Is county Oxfordshire east of the county Essex?'' from GeoQuestion201 corpus, Xu et al.'s parser returns an empty value for the transformation value\footnote{\url{https://github.com/quangis/AGILE2023-Semantic-complexity-GeoAnQu/blob/main/inputCorpora/Geo201_missing.json}}. This result should not come as a surprise, as relational queries were not covered as a part of the model's grammar development. 
+
+This past work points to two interesting implications. First, there exists an opportunity to make use of explicit relational models and calculi to improve the ability of existing GeoQA systems to deal with spatial relations in questions. In turn, this imporoved capability may help to enable handling of more diverse sets of questions. Second, combining LLMs with  explicit conceptual models---including spatial calculi and the core concept model for spatial information---raises the opportunity more systematically to expand existing corpora with more diverse questions. It is expected that using the conceptual models underlying spatial relations and core concepts in combination with LLMs may allow us to fill this gap, i.e., by enabling us to generate arbitrarily many geographic questions of a particular kind and complexity.
+
+
+
+
+% A parallel obstacle to scaling and evaluating that route is the limited availability of question corpora that explicitly encode spatial \emph{and} temporal relations, and the lack of a geoparser that recognises the full range of such relations across functional roles. This gap constrains the construction, coverage analysis, and testing of qualitative spatial representations—thereby directly impacting \textbf{RQ1}. 
+
+% To address this constraint, the second part of the chapter  I introduce a conceptual relational model that aligns spatial calculi (RCC/CDC) and temporal calculi (AIA) with the functional roles used in GeoQA (Measure, Condition, Support, Spatial/Temporal Extent; cf.\ \textcite{xu_grammar_2023}). The model provides the schema; the LLM supplies scale. Concretely, I (i) use GPT-3.5 as an \emph{annotator} to label existing questions with relations and roles in a manner compatible with the transformation grammar, and (ii) use GPT-3.5 as a \emph{controlled generator} to synthesise additional questions that systematically fill under-represented role–relation patterns. The resulting role- and relation-annotated corpus feeds back into symbolic components (e.g., extending coverage of the transformation parser) and supports learning-based methods, thereby strengthening the construction and evaluation of qualitative spatial representations in GeoQA.
+
+% Methodologically, this LLM strand mirrors the ontology strand: (a) \emph{representation} (SEM patterning vs.\ the proposed relational model), (b) \emph{automation} (workflow composition vs.\ LLM-based annotation/generation), and (c) \emph{consolidation/assessment} (intensional/extensional grouping of workflows vs.\ coverage and quality analyses of role–relation patterns). Framed this way, the chapter constitutes a single, cohesive project aimed at constructing operational qualitative spatial representations for GeoQA: first at the workflow level for geo-events, and then at the corpus level for spatial and temporal relations.
+
+
+% The lack of a diverse and large set of of queries including spatial and temporal relations in the previously developed corpora, along with the lack of any geoparser covering the different possible relations in questions, was the motivation for conducting this study. A long-term aim is to further improve parser by \textcite{xu_grammar_2023} by proposing a conceptual relational model to incorporate spatial and temporal relations in different functional roles. The reason for choosing Xu et al.'s parser is because it works with the most diverse set of questions compared to other mentioned symbolic approaches. %With such a model, I can not only include more diverse relational queries into the existing corpus but also generate new questions and expand the dataset's size. 
+% To address these goals, I focused on four research questions in this chapter:
+% \begin{itemize}
+%     \item R1: In which different kinds of functional and grammatical roles can spatial and temporal relations occur? How biased are existing corpora in these respects? 
+%     \item R2: Using LLMs, how can I automatically generate novel questions that are representative of the different possibilities implied by the patterns in R1, leading to a better, more representative, and larger corpus? 
+%     \item R3 What is the quality of those generated questions? To what extent are LLMs able to incorporate the conceptual models underlying these questions, such as spatial and temporal relations as well as their functional roles?
+%     \item R4: What is the quality of labelling of questions with spatial and temporal relationships using large language models? %To what extent are LLMs able to incorporate these same conceptual models?
+% \end{itemize}
+
+
+\subsection{Functional roles}\label{func_roles}
+
+\textit{Functional roles} have been proposed to identify the roles and orders of spatial information in analysing and answering geo-analytical questions with GIS workflows \parencite{xu_grammar_2023}. There are six functional roles, roughly aligning with Sinton's paradigm for spatial measurement \parencite{sinton_inherent_1978}. 
+\begin{enumerate}
+    \item \textit{Measure} (M) is a necessary component of a question as it represents the analytical goal and indicates the final output information of its workflow. 
+    \item A measure can be specified by one or more \textit{Conditions} (C) in a question. Typically, spatial information annotated as a condition is used as an input to the workflow output. 
+    \item \textit{Sub-conditions} (subC) constrain a condition via spatial relations and thematic attributes and thus is used to select or update the condition in GIS workflows. Since a sub-condition makes a question rather long and complex, it is not common in geographic questions. 
+    \item \textit{Support} (S) defines the spatial control (such as statistical zones) to aggregate a measure, which also provides an input to a workflow output. 
+    \item \textit{Spatial extents} (SE) define spatial boundaries for all other functional roles. 
+    \item Similarly, \textit{temporal extents} (TE) define temporal boundaries for other functional roles. 
+\end{enumerate}
+
+For example, here a question with the functional roles is annotated: 
+\begin{quote}
+``What is the \underline{number}\textsuperscript{(M)} of \underline{street intersections}\textsuperscript{(C)} for each \underline{neighborhood}\textsuperscript{(S)} in \underline{Amsterdam}\textsuperscript{(SE)} in \underline{2020}\textsuperscript{(TE)}?''     
+\end{quote}
+Based on the annotation, the question can be interpreted in terms of its analytical procedures, where the condition and support bounded by the two extents are both used as inputs to generate the measure (Figure~\ref{fig:1}). 
+
+% \begin{figure}
+%     \centering
+%     \includegraphics[scale=0.1]{RMIT-PhDThesis-LaTeX-template-master/Figures/Chapter 3/Figure-1-alt.pdf}
+%     \caption{A conceptual workflow for answering the question ``\textit{What is the number of street intersections for each neighborhood in Amsterdam in 2020?}'' The functional roles indicate the procedure semantics of spatial information within the analytical process.}
+%     \label{fig:1}
+% \end{figure}
+
+\begin{figure}[!h]
+\centering
+{\includegraphics[width=0.7\linewidth]{RMIT-PhDThesis-LaTeX-template-master/Figures/Chapter 3/Figure-1-alt.pdf}}\
+
+\caption{A conceptual workflow for answering the question ``What is the number of street intersections for each neighborhood in Amsterdam in 2020?'' The functional roles indicate the procedure semantics of spatial information within the analytical process.}
+\label{fig:1}
+\end{figure}
+
+% The organization of the remainder of the paper is as follows. Section \ref{background} summarizes the background of the work. I propose my spatial and temporal relational model in Section \ref{relational_model}, before my experimental methodology is explained in Section \ref{methodology}. I analyse questions using this model (Section \ref{relational_model_analysis_questions}), test the performance of LLMs for labelling relations with and without my model (Section \ref{labelling task}), and test the performance of the LLM model for generating new questions with and without the relational model (Section \ref{generation task}). The results and evaluation of my methodology is presented in Section \ref{results}. I discuss results in Section \ref{discussion} and conclude the paper in Section \ref{conculsion}.
+
+% \section{Related works}\label{background}
+% \subsection{Spatial and temporal calculi}
+% Qualitative calculi provide a formal representation of spatial relations (SR) and temporal relations (TR) to capture the inherent imprecision of human spatial concepts (e.g., ``left'' and ``right,'' ``north'' and ``south,'' ``inside'' and "outside'')\parencite{duckham2023qualitative}. Over the past 40 years, a broad range of spatial and temporal calculi has evolved for representing and reasoning about qualitative spatial and temporal objects and their relationships. A thorough survey of qualitative spatial and temporal calculi along with their computational properties has been developed by \parencite{dylla2017survey}. The region connection calculus (RCC) is one of the best-known qualitative spatial logics and is constructed from a binary connection relation between regions \parencite{randell1992spatial}. There are two common RCC variants: RCC-8 and RCC-5. The former can be used to represent a set of eight JEPD topological relations between regions: disconnected (``DC''), touches (externally connected, ``EC''), equals (``EQ''), partially overlapping (``PO''), inside and touches (tangential proper part, ``TPP''), contains and touches (tangential proper part inverse, ``TPPi''), inside (non-tangential proper part, ``NTPP''), and contains (non-tangential proper part inverse, ``NTPPi''). RCC-5 is a less discerning relative of RCC-8 used to represents five basic JEPD topological region relations: inside (proper part, ``PP''), contains (proper part inverse, ``PPi''), equals (``EQ''), distinct (disjoint region, ``DR''), and overlap (partial overlap, ``PO'') \parencite{cohn1997qualitative}.
+
+% Numerous other qualitative spatial and temporal calculi are available to represent and reason about different types of spatial relations in different ways. Cardinal direction calculus (CDC), for instance, was first introduced by Frank (1992) \parencite{frank1992qualitative}, who described a method for formal qualitative spatial reasoning based on cardinal directions. Frank defined eight cardinal direction relations (``North, N,'' ``East, E,'' ``Northeast, NE,'' ``Southeast, SE,'' ``South, S,'' ``Southwest, SW,'' ``West, W,'' ``Northwest, NW''), together with two different reasoning systems (based on either projective or conical interpretations of cardinal directions). 
+
+% Allen’s interval algebra is another highly influential early example of representing temporal knowledge and temporal reasoning \parencite{allen1983maintaining}. The core of Allen's work is around temporal intervals and the relationships between them, proposing an interval-based temporal logic and a reasoning algorithm that uses constraint propagation. This calculus was founded on a fundamental ``meets'' relation between two temporal intervals and introduced a total of 13 distinct qualitative relations to describe how an ordered pair of intervals can be connected (intuitively, equals or before, precedes, initiates, begins, during, ends, and their inverses). Further information on qualitative spatial and temporal calculi, along with their computational properties, can be found in a range of literature on the topic \parencite{cohn2001qualitative,dylla2017survey,duckham2023gis}. 
+
+
+% \subsection{Functional roles}
+% \textit{Functional roles} are proposed to identify the roles and orders of spatial information in analysing and answering geo-analytical questions with GIS workflows \parencite{xu2023grammar}. There are six functional roles, roughly aligning with Sinton's paradigm for spatial measurement \parencite{sinton1978inherent}. \textit{Measure} (M) is a necessary component of a question as it represents the analytical goal and indicates the final output information of its workflow. A measure can be specified by one or more \textit{conditions} (C) in a question. Typically, spatial information annotated as a condition is used as an input to the workflow output. \textit{Sub-condition} (subC) constrains a condition via spatial relations and thematic attributes and thus is used to select or update the condition in GIS workflows. Since a sub-condition makes a question rather long and complex, it is not common in geographic questions. \textit{Support} (S) defines the spatial control (such as statistical zones) to aggregate a measure, which also provides an input to a workflow output. \textit{Spatial extent} (SE) and \textit{temporal extent} (TE) define the spatial and temporal boundary, respectively, for all other functional roles. Here I annotate a question with the functional roles: ``What is the \underline{number}\textsuperscript{(M)} of \underline{street intersections}\textsuperscript{(C)} for each \underline{neighborhood}\textsuperscript{(S)} in \underline{Amsterdam}\textsuperscript{(SE)} in \underline{2020}\textsuperscript{(TE)}?'' Based on the annotation, I can interpret the question in terms of its analytical procedures, where the condition and support bounded by the two extents are both used as inputs to generate the measure (Figure~\ref{fig:1}). 
+
+% The current research introduces a transformation parser to annotate the functional roles based on their syntactic patterns investigated from the GeoAnQu corpus \parencite{xu2023grammar}. The parser is compiled against a context-free grammar, where each functional role is a nonterminal symbol representing sequences of tokens that can appear in this role. This grammar covers a limited number of syntactic variations, requiring a significant amount of manual investment to extend it. Therefore, it could be interesting to test the potential of generative AI models in identifying the functional roles, since they have demonstrated some ability in other entity recognition tasks \parencite{mai2023opportunities,wang2023gpt}.
+
+% \begin{figure}
+%     \centering
+%     \includegraphics[scale=0.1]{images/Figure-1-alt.jpg}
+%     \caption{A conceptual workflow for answering the question ``\textit{What is the number of street intersections for each neighborhood in Amsterdam in 2020?}'' The functional roles indicate the procedure semantics of spatial information within the analytical process.}
+%     \label{fig:1}
+% \end{figure}
+
+
+
+% \section{Functional roles and spatial and temporal calculi}\label{fr and sr/tr}
+
+% This section explains the functional roles, as well as the two considered spatial calculi, including CDC and RCC5, as well as temporal calculi, AIA.
+\section{Conceptual relational model}\label{relational_model}
+
+A transformation parser was proposed by \parencite{xu_grammar_2023} to annotate the functional roles based on their syntactic patterns derived from the GeoAnQu corpus. The parser is compiled against a context-free grammar, where each functional role is a non-terminal symbol representing sequences of tokens that can appear in this role. Such a grammar covers a limited number of syntactic variations, requiring a significant amount of manual investment to extend it. Therefore, a potential application of generative AI models we will explore is in identifying the functional roles, since they have demonstrated some utility in other entity recognition tasks \parencite{mai_opportunities_2023,wang_gpt-ner_2023}.
+
+
+
+Different possibilities exist in which spatial and temporal relations can occur across various functional and grammatical roles. The approach taken in this chapter is to develop a conceptual relational model in which spatial and temporal relations are mixed with functional roles to enumerate all distinct underlying patterns. This approach assumes that spatial and temporal relations can occur only in one of the functional roles, because the occurrence of spatial and temporal relations across multiple functional roles would result in numerous possibilities, significantly elevating the complexity of the problem.
+% Please add the following required packages to your document preamble:
+% \usepackage{multirow}
+\begin{sidewaystable}[!htp]
+\centering
+\scriptsize
+\begin{tabular}{|p{0.3cm}|p{2.7cm}|p{3.3cm}|p{12cm}|}
+\hline
+\textbf{No} & \textbf{Class} & \textbf{Pattern} & \textbf{Sample Question} \\ \hline
+1  & \multirow{4}{*}{M\_T}  & M\_T     & What is the date of the USA's Independence Day? \\
+2  &                         & M\_C\_T  & What was the date of the Battle of a Hundred Slain (the Fetterman Massacre)? \\
+3  &                         & M\_S\_T  & What is the construction date for each postcode area? \\
+4  &                         & M\_C\_S\_T & What is the date of the deadliest hurricane for each US state?               \\ \hline
+5  & \multirow{4}{*}{M\_P}  & M\_P     & What is the deadliest hurricane location? \\
+6  &                         & M\_C\_P  & What is the location of Beaufort Carteret County? \\
+7  &                         & M\_S\_P  & What is best landfill site for each state? \\
+8  &                         & M\_C\_S\_P & What location is the best site for a new landfill?                            \\ \hline
+9  & \multirow{4}{*}{M\_T\_P} & M\_T\_P  & What is the best landfill site and its construction date? \\
+10 &                          & M\_C\_T\_P & What is the location and date of Samantha Abeel's birth?  \\
+11 &                          & M\_S\_T\_P & What is the best landfill site and its construction date for each state?     \\
+12 &                          & M\_C\_S\_T\_P & What is the location and date of the deadliest hurricane for each state?     \\ \hline
+13 & \multirow{2}{*}{M\_C\_SRc} & M\_C\_SRc   & Which houses are in the downtown neighborhoods? \\
+14 &                           & M\_C\_S\_SRc & What areas within Amsterdam have the highest crime rate for each category of crime? \\ \hline
+15 & \multirow{2}{*}{M\_C\_TRc} & M\_C\_TRc   & What is the traffic flow between peak hours? \\
+16 &                           & M\_C\_S\_TRc & What is the traffic flow between peak hours for each transportation mode?    \\ \hline
+17 & \multirow{2}{*}{M\_C\_SRc\_TRc} & M\_C\_SRc\_TRc & What areas within Amsterdam have the highest crime rate between peak hours? \\
+18 &                            & M\_C\_S\_SRc\_TRc & What areas within Amsterdam have the highest crime rate between peak hours for each category of crime? \\ \hline
+19 & \multirow{2}{*}{M\_S\_SRs} & M\_S\_SRs   & What is the death rate in the northern part of each European country? \\
+20 &                           & M\_S\_C\_SRs & What is the number of visitors who go to the park in the east of each of the European countries? \\ \hline
+21 & \multirow{2}{*}{M\_S\_TRs} & M\_S\_TRs   & What is the death rate every year? \\
+22 &                           & M\_S\_C\_TRs & What is the number of visitors who go to the park every hour?                \\ \hline
+23 & \multirow{2}{*}{M\_S\_SRs\_TRs} & M\_S\_SRs\_TRs & What is the death rate every year in the eastern part of each of the European countries? \\
+24 &                              & M\_S\_C\_SRs\_TRs & What is the number of visitors who go to the park in the eastern part of each of the European countries every day? \\ \hline
+25 & \multirow{4}{*}{M\_SE\_SRse} & M\_SE\_SRse   & What houses are east of Utrecht? \\
+26 &                             & M\_C\_SE\_SRse & What houses are for sale in Utrecht? \\
+27 &                             & M\_S\_SE\_SRse & What is the fastest hurricane for each state in the US? \\
+28 &                             & M\_C\_S\_SE\_SRse & What buildings are affected by a hurricane for each state in the US?         \\ \hline
+29 & \multirow{4}{*}{M\_TE\_TRte} & M\_TE\_TRte   & What is the fastest hurricane in 1977? \\
+30 &                             & M\_C\_TE\_TRte & What houses are for sale in 2017? \\
+31 &                             & M\_S\_TE\_TRte & What is the death rate for each county in 2020? \\
+32 &                             & M\_C\_S\_TE\_TRte & What is the number of visitors who go to the park for each area after 2019?  \\ \hline
+33 & \multirow{4}{*}{M\_SE\_TE\_SRse\_TRte} & M\_SE\_TE\_SRse\_TRte       & What is the death rate in Melbourne between 2010 to 2020? \\
+34 &                                                & M\_C\_SE\_TE\_SRse\_TRte    & What is the death rate of infants in Melbourne between 2010 to 2020? \\
+35 &                                                & M\_S\_SE\_TE\_SRse\_TRte    & What is the death rate for each suburb in Melbourne in 2020? \\
+36 &                                                & M\_C\_S\_SE\_TE\_SRse\_TRte & What is the death rate of infants for each suburb in Melbourne in 2020? \\ \hline
+\end{tabular}
+\caption{Different patterns in the proposed conceptual relational model based on a data augmentation approach.}
+\label{conceptual model}
+\end{sidewaystable}
+
+Table \ref{conceptual model} enumerates the possible classes and patterns, based on the functional roles, along with sample questions for each pattern. The methodology used to identify these patterns is described in the following section. The conceptual relational model yields 36 different patterns in total, such that SR or TR or both can occur in any of the functional roles. Here, the classes categorise cases based on the presence of SR, TR, or both in each functional role, while the patterns offer more detailed distinctions based on the different possibilities of relations and functional roles. 
+
+\begin{table}[h!]
+\scriptsize
+% \\
+\begin{tabular}{|p{4.5cm}|p{8.5cm}|}
+\hline
+\textbf{Abbreviations}      & \textbf{Explanation}                                                                 \\ \hline
+M                           & Measure                                                                              \\
+C                           & Condition                                                                            \\
+S                           & Support                                                                              \\
+SE                          & Spatial extent                                                                       \\
+TE                          & Temporal extent                                                                      \\
+SR                          & Spatial relation                                                                     \\
+TR                          & Temporal relation                                                                    \\
+T                           & Time                                                                                 \\
+P                           & Place                                                                                \\
+M\_T                        & T occurs in M.                                                                       \\
+M\_C\_T                     & Including M and C roles, and T occurs in M.                                     \\
+M\_S\_T                     & Including M and S roles, and T occurs in M.                                     \\
+M\_C\_S\_T                  & Including M, C, and S roles, and T occurs in M.                                 \\
+M\_P                        & P occurs in M.                                                                       \\
+M\_C\_P                     & Including M and C roles, and P occurs in M.                                     \\
+M\_S\_P                     & Including M and S roles, and P occurs in M.                                     \\
+M\_C\_S\_P                  & Including M, C, and S roles, and P occurs in M                                  \\
+M\_T\_P                     & T and P occur in M.                                                                  \\
+M\_C\_T\_P                  & Including M and C roles, and T and P occur in M.                                \\
+M\_S\_T\_P                  & Including M and S roles, and T and P occur in M                                 \\
+M\_C\_S\_T\_P               & Including M, C, and S roles, and T and P occur in M.                            \\
+M\_C\_SRc                   & Including M and C roles, and SR occurs in C.                                    \\
+M\_C\_S\_SRc                & Including M, C, and S roles, and SR occurs in C                                 \\
+M\_C\_TRc                   & Including M and C roles, and TR occurs in C.                                    \\
+M\_C\_S\_TRc                & Including M, C, and S roles, and TR occurs in C                                 \\
+M\_C\_SRc\_TRc              & Including M and C roles, and SR and TR occur in C                               \\
+M\_C\_S\_SRc\_TRc           & Including M, C, and S roles, and SR and TR occur in C.                          \\
+M\_S\_SRs                   & Including M and S roles, and SR occurs in S.                                    \\
+M\_S\_C\_SRs                & Including M, C, and S roles, and SR occurs in S                                 \\
+M\_S\_TRs                   & Including M and S roles, and TR occurs in S.                                    \\
+M\_S\_C\_TRs                & Including M, C, and S roles, and TR occurs in S                                 \\
+M\_S\_SRs\_TRs              & Including M and S roles, and SR and TR occur in S                               \\
+M\_S\_C\_SRs\_TRs           & Including M, C, and S roles, and SR and TR occur in S.                          \\
+M\_SE\_SRse                 & Including M and SE roles, and SR occurs in SE.                                  \\
+M\_C\_SE\_SRse              & Including M, C, and SE roles, and SR occurs in SE.                              \\
+M\_S\_SE\_SRse              & Including M, S, and SE roles, and SR occurs in SE.                              \\
+M\_C\_S\_SE\_SRse           & Including M, C, S, and SE roles, and SR occurs in SE                            \\
+M\_TE\_TRte                 & Including M and TE roles, and TR occurs in TE.                                  \\
+M\_C\_TE\_TRte              & Including M, C, and TE roles, and TR occurs in TE.                              \\
+M\_S\_TE\_TRte              & Including M, S, and TE roles, and TR occurs in TE.                              \\
+M\_C\_S\_TE\_TRte           & Including M, C, S, and TE roles, and TR occurs in TE                            \\
+M\_SE\_TE\_SRse\_TRte       & Including M, SE, and TE roles, and SR occurs in SE and TR   occurs in TE.       \\
+M\_C\_SE\_TE\_SRse\_TRte    & Including M, C, SE, and TE roles, and SR occurs in SE and   TR occurs in TE.    \\
+M\_S\_SE\_TE\_SRse\_TRte    & Including M, S, SE, and TE roles, and SR occurs in SE and   TR occurs in TE.    \\
+M\_C\_S\_SE\_TE\_SRse\_TRte & Including M, C, S, SE, and TE roles, and SR occurs in SE   and TR occurs in TE.
+\\
+\hline
+\end{tabular}
+\caption{List of all abbreviations used in the conceptual model in Table \ref{conceptual model} with their explanations.}
+\label{abbreviations}
+\end{table}
+
+In Table \ref{conceptual model}, SRc, SRs, and SRse indicate the occurrences of SR in the C, S, and SE roles, respectively. Similarly, TRc, TRs, and TRte denote when TR occurs in the C, S, and TE roles, respectively. Therefore, each pattern specifies the functional roles it contains and identifies where the relation occur within them. For example, the pattern M\_C\_S\_SE\_TE\_SRse\_TRte occurs when a question has five functional roles: {M, C, S, SE, TE}; and two relations: {SR, TR} that occur in SE and TE roles, respectively. The mentioned roles in a corresponding sample question are as follows: 
+\begin{quote}
+``What is the death rate (M) of infants (C) for each suburb (S) in (SR) Melbourne (SE) in (TR) 2020 (TE)?''    
+\end{quote}
+ Although spatial and temporal relations cannot occur in the measure (M), there are cases where time (T), place (P), or both can be a part of M. These patterns are illustrated in Table~\ref{conceptual model} under the class categories of M\_T (when T occurs in M), M\_P (when P occurs in M), and M\_T\_P (when T and P occur in M), respectively. Each of these classes has four different patterns, depending on the presence of C, S, or both roles in the question. As opposed to the case of M, in the case of C and S, SR and TR can occur in these roles. This results in six distinct classes, each comprising two different patterns. Finally, in the case of the SE and TE functional roles, SR and TR can only occur in SE and TE, respectively. This leads to three classes, each containing four different patterns. Table \ref{abbreviations} provides the list of all abbreviations used in my conceptual model in Table \ref{conceptual model} along with their explanations.
+
+
+
+% For instance, the pattern M\_C\_S\_P is when a question has three functional roles: {M, C, S} and P occurs in M. As opposed to the case of M, in the case of C and S, SR and TR can occur in these roles, represented in my model as SRc, TRc, SRs, and TRs. Here, SRc denotes when SR occurs in C, TRc indicates when TR occurs in C, SRs represents SR occurring in S, and TRs denotes TR occurring in S. Different patterns under this case are shown in Table~\ref{conceptual model} within the classes M\_C\_SRc (when there are M and C roles, and SR occurs in C), M\_C\_TRc (when there are M and C roles, and TR occurs in C), M\_C\_SRc\_TRc (when there are M and C roles, and SR and TR occur in C), M\_S\_SRs (when there are M and S roles, and SR occurs in S), M\_S\_TRs (when there are M and S roles, and TR occurs in S), and M\_S\_SRs\_TRs (when there are M and S roles, and SR and TR occurs in S). In the case of the SE and TE functional roles, SR and TR can only occur in SE and TE, respectively. SRse and TRte denote  when SR occurs in the SE role and TR occurs in TE. This results in three classes including M\_SE\_SRse (when there are M and SE roles, and SR occurs in SE), M\_TE\_TRte (when there are M and TE roles, and TR occurs in TE), and M\_SE\_TE\_SRse\_TRte (when there are M, SE, and TE roles, and SR occurs in SE and TR occurs in TE). Each class comprises four distinct patterns. For example, the pattern M\_C\_S\_SE\_TE\_SRse\_TRte is when a question has five functional roles: {M, C, S, SE, TE}, and two relations: {SR, TR} that occur in SE and TE roles, respectively. The mentioned roles in a corresponding sample question are as follows: \textit{What is the death rate (M) of infants (C) for each suburb (S) in (SR) Melbourne (SE) in (TR) 2020 (TE)?}. 
+% Finally, the proposed conceptual relational model presents 36 different patterns in total such that SR or TR or both can occur in any of functional roles. 
+
+% There are six classes in this case, where each Each of class has two different pattern which in total there are 12 patterns under these classes. 
+
+
+% Following Table\ref{conceptual model}, SRc, TRc, SRs, TRs denote to when SR occurs in C, TR occurs in C, SR occurs in S, and TR occurs in C, respectively. The possibility of  which their different patterns are shown under M\_C\_SRc, M\_C\_TRc, M\_C\_SRc\_TRc, M\_S\_SRs, M\_S\_TRs, and M\_C\_SRs\_TRs classes. In the SE and TE roles, I can only have spatial relation (SRse) and temporal relation (TRte), respectively. Finally, the table represents patterns for the classes of M\_SE\_SRse, M\_TE\_TRte, and M\_SE\_TE\_SRse\_TRte.
+\section{Methodology}\label{methodology}
+
+
+% Please add the following required packages to your document preamble:
+% \usepackage{multirow}
+% \begin{table}
+% \begin{tabular}{l|cl}
+% \textbf{No} & \textbf{Class}                                              & \textbf{Pattern}            \\ \hline
+% 1           & \multicolumn{1}{c|}{\multirow{4}{*}{M\_T}}                  & M\_T                        \\
+% 2           & \multicolumn{1}{c|}{}                                       & M\_C\_T                     \\
+% 3           & \multicolumn{1}{c|}{}                                       & M\_S\_T                     \\
+% 4           & \multicolumn{1}{c|}{}                                       & M\_C\_S\_T                  \\ \hline
+% 5           & \multicolumn{1}{c|}{\multirow{4}{*}{M\_P}}                  & M\_P                        \\
+% 6           & \multicolumn{1}{c|}{}                                       & M\_C\_P                     \\
+% 7           & \multicolumn{1}{c|}{}                                       & M\_S\_P                     \\
+% 8           & \multicolumn{1}{c|}{}                                       & M\_C\_S\_P                  \\ \hline
+% 9           & \multicolumn{1}{c|}{\multirow{4}{*}{M\_T\_P}}               & M\_T\_P                     \\
+% 10          & \multicolumn{1}{c|}{}                                       & M\_C\_T\_P                  \\
+% 11          & \multicolumn{1}{c|}{}                                       & M\_S\_T\_P                  \\
+% 12          & \multicolumn{1}{c|}{}                                       & M\_C\_S\_T\_P               \\ \hline
+% 13          & \multicolumn{1}{c|}{\multirow{2}{*}{M\_C\_SRc}}             & M\_C\_SRc                   \\
+% 14          & \multicolumn{1}{c|}{}                                       & M\_C\_S\_SRc                \\ \hline
+% 15          & \multicolumn{1}{c|}{\multirow{2}{*}{M\_C\_TRc}}             & M\_C\_TRc                   \\
+% 16          & \multicolumn{1}{c|}{}                                       & M\_C\_S\_TRc                \\ \hline
+% 17          & \multicolumn{1}{c|}{\multirow{2}{*}{M\_C\_SRc\_TRc}}        & M\_C\_SRc\_TRc              \\
+% 18          & \multicolumn{1}{c|}{}                                       & M\_C\_S\_SRc\_TRc           \\ \hline
+% 19          & \multicolumn{1}{c|}{\multirow{2}{*}{M\_S\_SRs}}             & M\_S\_SRs                   \\
+% 20          & \multicolumn{1}{c|}{}                                       & M\_S\_C\_SRs                \\ \hline
+% 21          & \multicolumn{1}{c|}{\multirow{2}{*}{M\_S\_TRs}}             & M\_S\_TRs                   \\
+% 22          & \multicolumn{1}{c|}{}                                       & M\_S\_C\_TRs                \\ \hline
+% 23          & \multicolumn{1}{c|}{\multirow{2}{*}{M\_S\_SRs\_TRs}}        & M\_S\_SRs\_TRs              \\
+% 24          & \multicolumn{1}{c|}{}                                       & M\_S\_C\_SRs\_TRs           \\ \hline
+% 25          & \multicolumn{1}{c|}{\multirow{4}{*}{M\_SE\_SRse}}           & M\_SE\_SRse                 \\
+% 26          & \multicolumn{1}{c|}{}                                       & M\_C\_SE\_SRse              \\
+% 27          & \multicolumn{1}{c|}{}                                       & M\_S\_SE\_SRse              \\
+% 28          & \multicolumn{1}{c|}{}                                       & M\_C\_S\_SE\_SRse           \\ \hline
+% 29          & \multicolumn{1}{c|}{\multirow{4}{*}{M\_TE\_TRte}}           & M\_TE\_TRte                 \\
+% 30          & \multicolumn{1}{c|}{}                                       & M\_C\_TE\_TRte              \\
+% 31          & \multicolumn{1}{c|}{}                                       & M\_S\_TE\_TRte              \\
+% 32          & \multicolumn{1}{c|}{}                                       & M\_C\_S\_TE\_TRte           \\ \hline
+% 33          & \multicolumn{1}{c|}{\multirow{4}{*}{M\_SE\_TE\_SRse\_TRte}} & M\_SE\_TE\_SRse\_TRte       \\
+% 34          & \multicolumn{1}{c|}{}                                       & M\_C\_SE\_TE\_SRse\_TRte    \\
+% 35          & \multicolumn{1}{c|}{}                                       & M\_S\_SE\_TE\_SRse\_TRte    \\
+% 36          & \multicolumn{1}{c|}{}                                       & M\_C\_S\_SE\_TE\_SRse\_TRte \\ \hline
+% \end{tabular}
+% \caption{Different patterns in the proposed conceptual relational model based on functional roles.} % needs to go inside longtable environment
+% \label{conceptual model}
+
+% \end{table}
+
+
+%\subsection{Approach for investigating biases concerning spatial and temporal relations in question corpora}\label{relational_model_analysis_questions}
+% I say how I use both models to analyse the questions using NLP.
+To investigate the patterns and roles of spatial and temporal relations in geographic question corpora, the first step is to identify the relations and the roles from the questions. \textcite{nyamsuren_semantic_2023} annotated the functional roles for five corpora, GeoAnQu \parencite{xu_extracting_2020}, Geoquery \parencite{zelle_1996-learning_nodate}, Giki \parencite{santos_gikiclef_2010}, GeoCLEF \parencite{clough_clef_2006}, and GeoQuestions201 \parencite{punjani_template-based_2018}, using the transformation parser proposed by \textcite{xu_grammar_2023}. Although this parser is semantically expressive, it is tailored to the syntactic structures of GeoAnQu questions and thus not fully compatible with the syntax of the other four corpora. Therefore, these questions were parsed after being reformulated into grammatically sound, concise, and clear questions. 
+
+Due to parser limitations and syntactic variation, 27, 17, and 241 questions from Geo201, Giki, and GeoQuery respectively were parsed incorrectly. These questions were subsequently labelled manually. Using the parsing outputs of several corpora,\footnote{https://github.com/quangis/AGILE2023-Semantic-complexity-GeoAnQu} those containing spatial and temporal relations were manually identified and filtered out in order to investigate the functional roles in which these relations occurred. The spatial relations were annotated in conformance to the RCC and CDC calculi, while temporal relations were annotated using the Allen Interval Algebra (AIA) calculus. The patterns of questions involving spatial and temporal relations were categorised using the conceptual relational model introduced above. The ultimate aim was to determine the probability of occurrence of each pattern within each corpus.
+
+
+\subsection{Generative model performance for labelling tasks}\label{labelling task}
+
+The efficacy of generative models with and without the conceptual relational model was evaluated with respect to its accuracy in labelling spatial and temporal relations and functional roles. The initial experiment employed zero-shot learning, where a prompt was presented to the GPT-3.5 model to extract the requested roles (as illustrated in Listing \ref{list-zeroshot-label}). The prompt was structured to extract specific roles from any given question, without referencing my relational model or providing any examples to guide the process.
+
+% \clearpage % or \newpage
+\bigskip
+\begin{lstlisting}[
+    caption={A sample prompt for zero-shot learning for the labelling task.},
+    label=list-zeroshot-label,
+    captionpos=t,
+    abovecaptionskip=-\medskipamount,
+    breaklines=true
+]
+Extract `Measure', `Support', `Condition', `Spatial extent', and 
+`Temporal extent' from the below question:
+`What is the fastest hurricane for each state in the US?'
+If Time occurs in the extracted `Measure', identify that and put it under `Measure_t' label.
+If Place occurs in the extracted `Measure', identify that and put it under `Measure_p' label.
+If there is a spatial relation in the extracted `Support', identify that and put it under `Support_SR' label.
+If there is a temporal relation in the extracted `Support', identify that and put it under `Support_TR' label.
+If there is a spatial relation in the extracted `Condition', identify that and put it under `Condition_SR' label.
+If there is a temporal relation in the extracted `Condition', identify that and put it under `Condition_TR' label.
+If there is a spatial relation in the extracted `Spatial extent', identify that and put it under `SE_SR' label.
+If there is a temporal relation in the extracted `Temporal extent', identify that and put it under `TE_TR' label.
+In the cases where there is nothing found for each label, put `'.
+So, order the outputs as below in JSON format:
+    - Measure: measure
+    - Support: support
+    - Condition: condition
+    - Spatial extent: spatial_extent
+    - Temporal extent: temporal_extent
+    - Measure_T: measure_t
+    - Measure_P: measure_p
+    - Support_SR: support_sr
+    - Support_TR: support_tr
+    - Condition_SR: condition_sr
+    - Conidition_TR: condition_tr
+    - Spatial_Extent_SR: se_sr
+    - Temporal_Extent_TR: te_tr
+\end{lstlisting}
+
+In the next experiment, the GPT-3.5 model was fine-tuned by training with ten sets of questions, each annotated according to the roles defined in the conceptual relational model. The fine-tuned model was applied to 26 sets of questions. Model performance was assessed against the task of labelling based on these annotations. 
+
+Prior to fine-tuning, the training data was formatted in accordance with OpenAI's established guidelines for prompts and completions, as detailed in their documentation.\footnote{\url{https://platform.openai.com/docs/guides/fine-tuning/preparing-your-dataset}} This format necessitated that the prompts be the input questions from which the role entities were to be extracted. The completions, on the other hand, were composed of the identified named entities along with their respective roles as determined by the annotators. The test data was also formatted in the same way to allow the model to properly truncate the completion and to better evaluate the model's performance.
+
+In the final experiment, the GPT-3.5 model was instructed using the conceptual relational framework. In some literature, this is referred to as a \textit{prompt tuning} approach. Prompt tuning is a technique for adapting pre-trained language models to specific tasks through ``soft prompts`` \parencite{lester_power_2021}. The provided prompt (as illustrated in Listing \ref{list-instruct-label1}) was structured into three primary sections: the first briefly outlined spatial and temporal calculi as well as functional roles; the second presented example questions annotated according to the various roles defined in my relational model; and the third section posed a question, prompting the model to assign labels to a given question based on this framework.
+
+\bigskip
+\begin{lstlisting}[
+    caption={A sample prompt using instruction-based learning for the labelling task.},
+    label=list-instruct-label1,
+    captionpos=t,
+    abovecaptionskip=-\medskipamount,
+    breaklines=true
+]
+## section 1: explaining spatial and temporal calculi as well as functional roles
+Functional roles are given as lists of "Measure (M)", "Condition (C)", "Support (S)", "Spatial extent (SE)", and "Temporal extent (TE)". Also, if Spatial relation (SR) is present in the functional roles of C, S, SE, it is denoted as SRc, SRs, SRse, respectively. Also, if Temporal Relation (TR) is present in the functional roles of C, S, TE, it is denoted as TRc, TRs, TRte, respectively. Also, Time (T) or Place (P) can only be present in the functional role of M, they are denoted as Tm and Pm, respectively. Also, SR here is based on 'Cardinal Direction Calculus (CDC)' or'Region Connection Calculus (RCC)'. Also, TR is based on 'Allen Interval Algebra (AIA)'.
+
+## section 2: sample questions instructed with the relational model
+In the question, `What is the number of visitors who go to the park for each area after 2019?', the functional roles are identified as below:    
+- M: the number
+- C: visitors who go to the park
+- S: each area
+- SE: ""
+- TE: after 2019    
+Also, the spatial and temporal relations in these roles are identified in the given question as below:    
+- Tm: ""
+- Pm: ""
+- SRc: ""
+- TRc: ""
+- SRs: ""
+- TRs: ""
+- SRse: ""
+- TRte: after
+
+In the question, 'What is the location and date  of the deadliest huricane  for each state ?', the functional roles are as below:
+C: the deadliest huricane
+S: state
+Tm: date
+Pm: the location
+
+In the question, 'What areas  are within Amsterdam  with the highest crime rate between peak hours for each specific category of crime?', the functional roles are as below:
+M: areas
+C: within Amsterdam, the highest crime rate, between peak hours
+S: specific category of crime
+SRc: within
+TRc: between
+
+## section 3: test question
+In the question, `What landmarks are north of Amsterdam?', the functional roles are as below:
+\end{lstlisting}
+
+The performance of the GPT-3.5 model in experiments was evaluated using standard precision, recall, and F1-score metrics. In this context, 
+\begin{itemize}
+    \item true positive (TP) denotes instances where GPT-3.5 accurately identifies a role that aligns with its actual role;
+    \item false positive (FP) is the number of cases when GPT-3.5 incorrectly assigns a role that is not the actual role;
+    \item false negative (FN) pertains to cases where GPT-3.5 does not assign a role, yet in reality there is one assigned; and 
+    \item true negative (TN) refers to the total number of cases where GPT-3.5 rightly does not assign some role. 
+\end{itemize}
+Precision is then the proportion of TP cases among all positives. Recall is the proportion of TP cases among the true positives and false negatives. F1-scome is the harmonic mean of precision and recall and is a more representative overall measure of retrieval quality than precision or recall.
+
+\begin{equation*}
+  \text{Recall} = \frac{\mathrm{TP}}{\mathrm{\ (TP\ +\ FN)}}
+\qquad
+  \text{Precision} = \frac{\mathrm{TP}}{\mathrm{\ (TP\ +\ FP)}}
+\qquad
+  \text{F1} = \frac{\mathrm{2* Recall * Precision}}{\mathrm{\ (Recall\ +\ Precision)}}
+\label{exv:eqn:UmrechnungEingangsgroesse3_1}
+\end{equation*} 
+
+% or fails to assign one, while the actual role differs from the model's prediction. 
+
+
+
+
+
+% \begin{enumerate}
+%     \item zero-shot learning and few-shot learning of the gpt model, in terms of different roles in my model, and testing over new questions to see how is the improvement with/without training.
+%     \item Instructing gpt model with/without my model
+    
+% \end{enumerate}
+
+\subsection{Generative model performance for extending the corpus}\label{generation task}
+
+A next step in the research utilised LLMs to expand the corpus with questions by including a variety of spatial and temporal relations as well as functional roles. It also evaluated the performance of these models with and without my proposed relational framework for this task. In the initial experiment, the GPT-3.5 model is instructed to follow the relational framework, and then asked it to generate a specified number of questions, ensuring they matched the requested pattern (Table \ref{conceptual model}). The prompt given to the GPT-3.5 model (as illustrated in Listing 4) gave instructions in three main sections: 1) Describing relational calculi and functional roles; 2) Feeding a set of examples where questions have been annotated according to my relational model; 3) Asking the model to generate questions based on the specified number and requested pattern.
+
+\bigskip
+\begin{lstlisting}[
+    caption={A sample prompt in instruction-based learning for generating new questions.},
+    label=list-instruct-label2,
+    captionpos=t,
+    abovecaptionskip=-\medskipamount,
+    breaklines=true
+]
+## section 1: explaining spatial and temporal calculi as well as functional roles
+If the functional roles as lists of "Measure (M)", "Condition (C)", "Support (S)", "Spatial extent (SE)", and "Temporal extent (TE)". Also, if Spatial relation (SR) is present in the functional roles of C, S, SE, it is denoted as SRc, SRs, SRse, respectively. Also, if Temporal Relation (TR) is present in the functional roles of C, S, TE, it is denoted as TRc, TRs, TRte, respectively. Also, Time (T) or Place (P) can only be present in the functional role of M, where it is denoted as Tm and Pm, respectively. Also, SR is based on `Cardinal Direction Calculus (CDC)' or `Region Connection Calculus (RCC)'. Also, TR is based on `Allen Interval Algebra (AIA)'.
+
+## section 2: sample questions instructed with the relational model
+In the question, `What is the death rate of infants for each suburb in Melbourne in 2020?', the functional roles are identified as below:    
+- M: the death rate
+- C: infants
+- S: each suburb
+- SE: in Melbourne
+- TE: in 2020    
+Also, the spatial and temporal relations in these roles are identified in the given question as below:    
+- Tm: ""
+- Pm: ""
+- SRc: ""
+- TRc: ""
+- SRs: ""
+- TRs: ""
+- SRse: in
+- TRte: in
+
+Generate a new 'What' question that has only `M',`S',`SE',`TE',`SRse', and `TRte' roles:
+Question: What is the death rate for each suburb in Melbourne in 2020?
+- M: the death rate
+- S: each suburb
+- SE: in Melbourne
+- TE: in 2020
+- SRse: in
+- TRte: in
+
+## section 3: create test question(s), specifying the number of questions and the pattern
+Generate 2 new `What' questions that have only `M',`S',`SE',`TE',`SRse', and `TRte' roles:
+
+\end{lstlisting}
+
+
+In the final question generation experiment, my focus was to evaluate the model's performance under conditions where specific sections of the prompt from the previous experiment were omitted. To this end, three different tests were conducted. The first test involved removing the descriptions of the relations and functional roles from the prompt while keeping the other sections unchanged. The second test excluded the sample questions from the prompt. Finally, the third test represented a zero-shot scenario, where the prompt was devoid of any information about relations, functional roles, and sample examples, focusing solely on generating questions based on a specified pattern. This approach helped us understand how specific components of a prompt influenced the model's responses and overall performance. The performance of the GPT-3.5 model in the question generation task was evaluated using the same metrics outlined in the previous section. This evaluation focused on the model's ability to identify various roles within the generated questions. Better performance in recognizing different roles indicates a closer alignment with the specified patterns in the prompt.
+
+The source code and datasets used/produced by this code
+are available on GitHub \footnote{\url{https://github.com/MohammadUT/AIQSR_COSIT2024}}
+
+% \hyperlink{https://github.com/MohammadUT/AIQSR\_COSIT2024/tree/main}{https://github.com/MohammadUT/AIQSR\_COSIT2024/tree/main}.
+% This section first explains my data augmentation approach based on mixing up spatial temporal relations in functional roles for exploring different possibilities of relations in spatial questions. Then I explain how I set up question generation experiments using GPT3.5:
+
+
+% \begin{enumerate}
+%     \item Instructing LLMs with the conceptual model in terms of text
+%     \item Instructing gpt model with/without with labelled examples
+    
+% \end{enumerate}
+
+
+%Also, then address how to generate new questions based on gpt.
+
+\section{Results and evaluation}\label{results}
+
+%\subsection{Prevalence and roles of spatial and temporal relations in existing corpora}\label{prev}
+% In this work, the proposed data augmentation approach is based on when SR or TR occurs in only one of the functional roles. This leads to 36 different patterns in total that SR or TR or both can occur in any of functional roles as provided in Table~\ref{single FR}. In this table each pattern is provided with a sample question. For instance, the pattern No. 34 indicates the presence of four functional roles: \{M, C, SE, TE\}, and two relations: \{SR, TR\} that occurred within the SE and TE roles, respectively. The mentioned roles in the corresponding sample question are as follow: \textit{What is the death rate (M) of infants (C) in (SR) Melbourne (SE) between (TR) 2010 to 2020 (TE)?}
+
+To investigate to what extent existing corpora exhibit bias in which spatial and temporal relations appear in questions, the percentage of questions with spatial, temporal, and spatial and temporal relations in several GeoQA corpora were catalogued. The five selected corpora, already encountered, were Geo201, GeoAnQu, GeoCLEFF, GeoQuery, and Giki, as shown in Table \ref{pattern_probability_corpora}. 
+
+The analysis indicated that questions with spatial or temporal relations constitute a significant proportion of the corpora, with over half of the questions incorporating at least one form of relation across all corpora. Specifically, in GeoCLEFF and GeoAnQu, more than 90\% of questions were found to contain at least one spatial or temporal relation. 
+
+The results also revealed that all of the studied corpora were highly biased towards spatial relations (e.g., ``Which royal borough has the biggest area size in London?'' from Geo201). Among the studied corpora, Giki is the only corpus that included any temporal relations (e.g., ``Which Mexican poets have published ballads before 1931?''). However, questions featuring temporal relations constituted only 5\% of that entire corpus. Questions with no relations were found most often in the GeoQuery and Giki corpora (e.g., ``What is the size of Massachusetts? from GeoQuery). Moreover, both spatial and temporal relations are present in questions from only two corpora, namely GeoAnQu and Giki, appearing in less than 11\% of questions in each (e.g., Where was the most intense hurricane in Oleander in 1977? from GeoAnQu). Furthermore, among questions with only spatial relations in the different corpora, there is a predominant focus on one specific type of topological relation---namely, containment discussed above (i.e., ``in'')---with other forms of spatial relation being overlooked.
+
+
+\begin{table}[!ht]
+\centering
+\begin{tabular}{l|ccccc}
+                                & \multicolumn{1}{l}{Geo201} & \multicolumn{1}{l}{GeoAnQu} & \multicolumn{1}{l}{GeoCLEF} & \multicolumn{1}{l}{GeoQuery} & \multicolumn{1}{l}{Giki} \\ \hline
+Size of corpus                  & 201                        & 306                         & 51                          & 881                          & 98                       \\
+Temporal relation \%             & 0\%                        & 0\%                         & 0\%                         & 0\%                          & 5\%                      \\
+Spatial relation \%              & 77\%                       & 89\%                        & 90\%                        & 47\%                         & 52\%                     \\
+Spatial and temporal relation \% & 0\%                        & 11\%                        & 0\%                         & 0\%                          & 10\%                     \\
+No relation \%                   & 23\%                        & 0\%                         & 10\%                         & 43\%                          & 33\%                      \\ \hline
+Total                            & 100\%                       & 100\%                       & 100\%                        & 100\%                         & 100\%                    
+\end{tabular}
+\caption{Proportion of spatial relations, temporal relations, both spatial and temporal relations, and no relations in different question corpora.}
+\label{spatial_temporal_relation_stats}
+\end{table}
+
+Further, the frequency of occurrence of different patterns in the relational conceptual model within the studied corpora was explored. Figure \ref{pattern_probability_corpora} shows the extent to which these corpora exhibit biases towards specific patterns. The patterns that have zero occurrence in all studied corpora are not included in this figure (24 out of the 37 patterns). The majority of spatial or temporal relations in the studied corpora follow either the ``M\_SE\_SRse'' or ``M\_C\_SE\_SRse'' pattern. Furthermore, aside from a small number of questions representing the ``M\_P'' and ``M\_C\_P'' patterns in the Geo201 corpus, spatial and temporal relations predominantly occur in SE and TE, respectively, meaning that no corpora presented questions where relations occur in other functional roles other than SE or TE. This also indicates that GeoAnQu and Giki exhibit relatively more diversity of patterns compared to other corpora, while questions in other corpora are confined to a few specific patterns. The figure also shows that the total number of distinct patterns detected in GeoAnQu, Giki, and Geo201 corpora is three, two, and two, respectively.
+
+
+% By analysing the relations in the queries in GeoQuAn and GeoQuestion201 corpora, it turns out the SR and TR only occur in SE and TE roles, respectively. This means that these corpora wouldn't cover more than 30\% of the patterns outlined in on my proposed model (There are 11 patterns where SR occurs in SE or TR occurs in TE. Therefore, in the worst case scenario, the corpus may adhere to only one of these patterns, or it could have all of them in the best case scenario.). 
+
+% \begin{longtable}{| p{.03\textwidth} | p{.32\textwidth} |p{.56\textwidth} |} 
+% \hline
+% \textbf{No} & \textbf{Pattern}            & \textbf{Sample Question}                                                                                            \\ \hline
+% 1           & M\_T                        & What is the Australian independence day?      \\ \hline 
+% 2           & M\_C\_T                     & What was the date of the battle of hundred slain   Fetterman Massacre?                                                    \\ \hline
+% 3           & M\_S\_T                     & What is the construction date for each PC4 area?                                                                          \\ \hline
+% 4           & M\_C\_S\_T                  & What is the date of deadliest huricane for each US   state?                                                               \\ \hline
+% 5           & M\_P                        & What is the deadliest hurricane location?                                                                                 \\ \hline
+% 6           & M\_C\_P                     & What is the location of Beaufort Carteret County?                                                                        \\ \hline
+% 7           & M\_S\_P                     & what is best landfill site for each state?                                                                                \\ \hline
+% 8           & M\_C\_S\_P                  & What location is the best site  for a new landfill?                                                                      \\\hline
+% 9           & M\_T\_P                     & what is the best landfill site and its construction   date?                                                               \\\hline
+% 10          & M\_C\_T\_P                  & What is the location and date  of Samantha Abeel's birth?                                                                 \\\hline
+% 11          & M\_S\_T\_P                  & what is the best landfill site and its construction   date for each state?                                                \\\hline
+% 12          & M\_C\_S\_T\_P               & What is the location and date  of the deadliest huricane  for each state?                                                \\\hline
+% 13          & M\_C\_SRc                   & Which houses are in the neighborhoods                                                                                     \\\hline
+% 14          & M\_C\_TRc                   & What is the traffic flow  between peak hours?                                                                             \\\hline
+% 15          & M\_C\_S\_SRc                & What areas    are within Amsterdam  with the   highest crime rate  for each specific   category of crime?                 \\\hline
+% 16          & M\_C\_S\_TRc                & What is the traffic flow  between peak hours for each transportation   mode?                                              \\\hline
+% 17          & M\_C\_SRc\_TRc              & What areas    are within Amsterdam  with the   highest crime rate  between peak hours?                                    \\\hline
+% 18          & M\_C\_S\_SRc\_TRc           & What areas    are within Amsterdam  with the   highest crime rate between peak hours for each specific category of crime? \\\hline
+% 19          & M\_S\_SRs                   & What is the death rate for north of each european   countries?                                                            \\\hline
+% 20          & M\_S\_TRs                   & What is the death rate  every year?                                                                                      \\\hline
+% 21          & M\_S\_C\_SRs                & What are the number    of visitors go to the park  for   east of each european countries?                                \\\hline
+% 22          & M\_S\_C\_TRs                & What are the number of visitors go to the park  every hour?                                                              \\\hline
+% 23          & M\_S\_SRs\_TRs              & What is the death rate  every year for east of each european   countries?                                                 \\\hline
+% 24          & M\_S\_C\_SRs\_TRs           & What are the number    of visitors go to the park  for   east of each european countries  every   day?                    \\\hline
+% 25          & M\_SE\_SRse                 & What houses are east of Utrecht?                                                                                          \\\hline
+% 26          & M\_TE\_TRte                 & What is the fastest hurricane  in 1977?  
+% \\\hline
+
+% 27          & M\_C\_SE\_SRse              & What houses    are for sale  in Utrecht?                                                                                  \\\hline
+% 28         & M\_S\_SE\_SRse              & What is the fastest hurricane  for each state in US?                                                                      \\\hline
+% 29          & M\_C\_S\_SE\_SRse           & What buildings    are affected by a hurricane  for   each state in US?                                                    \\\hline
+% 30          & M\_C\_TE\_TRte              & What houses    are for sale  in 2017?                                                                                     \\\hline
+% 31          & M\_S\_TE\_TRte              & what is the death rate for each county in   2020?                                                                         \\\hline
+% 32          & M\_C\_S\_TE\_TRte           & What are the number    of visitors go to the park  for   each area after 2019?                                            \\\hline
+% 33          & M\_SE\_TE\_SRse\_TRte       & What is the death rate in Melbourne between 2010 to   2020?                                                               \\\hline
+% 34          & M\_C\_SE\_TE\_SRse\_TRte    & What is the death rate of infants in Melbourne   between 2010 to 2020?                                                    \\\hline
+% 35          & M\_S\_SE\_TE\_SRse\_TRte    & What is the death rate for each suburb in Melbourne   in 2020?                                                            \\\hline
+% 36          & M\_C\_S\_SE\_TE\_SRse\_TRte & What is the death rate of infants for each suburb   in Melbourne in 2020? \\ \hline
+
+
+% \caption{Number of patterns in the proposed conceptual relational model provided with a sample question for each.} % needs to go inside longtable environment
+% \label{single FR}
+% \end{longtable}
+
+
+\begin{figure}[!h]
+{\includegraphics[width=1\linewidth]{RMIT-PhDThesis-LaTeX-template-master/Figures/Chapter 3/relationProbability-corpora.pdf}}\
+
+\caption{The probability of patterns in the proposed conceptual relational model in five question corpora. Those patterns with zero probability in all corpora have not been displayed.}
+\label{pattern_probability_corpora}
+\end{figure}
+
+
+\subsection{GPT-3.5 model labelling performance}\label{llm_performance}
+
+This section presents the results of the experiment examining GPT-3.5 model performance in three scenarios: zero-shot learning, where no training dataset is provided; few-shot learning, where the model is fine-tuned with a limited sample dataset; and instructing the model based on the proposed relational model (see Section \ref{labelling task}). 
+
+Figure~\ref{zero-shot} presents the evaluation metrics as a percentage (y-axis) for zero-shot learning for all roles defined in the relational model (x-axis). The graph indicates that the zero-shot model has a limited capability to extract functional roles and is unable to capture the spatial and temporal relations within them, as evidenced by zero values for recall, precision, and F1. Due to the substantial numbers of TN and TP, many questions have parts with no roles, and the zero-shot model has an overall hesitancy to annotate roles. Acceptable performance for the model is achieved when satisfactory results across all metrics are achieved, captured best by the F1-score, which combines precision and recall in a balanced measure of a model's performance. The model demonstrated its most notable performance in extracting TEs from the questions by equalling or exceeding 50\% in all metrics, yet it exhibited less acceptable performance for other functional roles (e.g., F1-score less than 40\% for functional roles and zero for remaining roles). These results indicate that the unassisted generative model faces challenges in understanding relational knowledge in input questions, particularly when spatial or temporal relations are involved in any of the functional roles.
+
+% These two factors lead to inflated accuracy. Therefore, the imbalance of TN and TP leads to accuracy becoming a misleading measure for labelling spatial and temporal relations in functional roles.  
+% Thus, it is not yet possible to automatically generate novel questions to have a more diverse and larger corpus of questions, including spatial and temporal relations. 
+
+
+\begin{figure}[!ht]
+\centering
+{\includegraphics[width=1\linewidth]{RMIT-PhDThesis-LaTeX-template-master/Figures/Chapter 3/zero-shot-metrics.pdf}}\
+
+\caption{Measured evaluation metrics in zero-shot learning with the GPT3.5 model for the functional roles in the relational model.}
+\label{zero-shot}
+\end{figure}
+
+Next, the GPT-3.5 model was fine-tuned using few-shot learning, where the model is trained on a set of sample questions that are annotated with functional roles and spatial and temporal calculi. Model performance was evaluated against a new set of questions (Figure~\ref{few-shot}). Although the results exhibit relatively better performance than zero-shot learning across all metrics for some of the functional roles (\textit{M, C}, and \textit{S}), notably achieving 75\% F1-score for \textit{M}, the fine-tuned model encountered difficulty in extracting any TPs for \textit{SE} and \textit{TE} functional roles. The performance of the fine-tuned model for labelling spatial and temporal relations in functional roles (e.g.,\textit{ SR\_C, TR\_C, SR\_S, TR\_S, SR\_SE, TR\_TE}) is very similar to the results of zero-shot learning because it shows many zero values for precision, recall, and F1, as well as a high number of TNs. 
+
+
+\begin{figure}[!ht]
+\centering
+{\includegraphics[width=1\linewidth]{RMIT-PhDThesis-LaTeX-template-master/Figures/Chapter 3/few-shot.pdf}}\
+
+\caption{Measured evaluation metrics in few-shot learning with the GPT3.5 model for the functional roles in the relational model.}
+\label{few-shot}
+\end{figure}
+
+Finally, the performance of the GPT3.5 model when instructed using the conceptual relational model is presented in Figure~\ref{labelling-instruct}. The model predictions consist only of TPs or FPs, resulting in a 100\% recall for cases with any number of TPs. The model shows a significant improvement in labelling spatial and temporal relations in functional roles, where a very poor performance is observed in the zero-shot and few-shot learning experiments. Figure~\ref{f1-three cases} compares the performance of prior experiments with the instruction-based case. The figure depicts the F1-score values attained for all roles in zero-shot learning, few-shot learning, and instruction-based scenarios. Accordingly, except for the P\_M role with zero performance, we can see the instruction-based approach outperforming the other two in all roles, achieving more than 50\% F1-score for C, S, SE, T\_M, SR\_C and TR\_C and more than 75\% for the remaining roles. 
+
+These results tend to support the interpretation that the GPT-3.5 model exhibits improved performance in the labelling task for all roles when instructed with the conceptual relational model, when compared with GPT-3.5 instructed without the conceptual relational model using zero-shot learning or when fine-tuned with an annotated set of training questions. This also underscores the significance of knowledge-driven approaches, wherein the model is guided by explicit knowledge. In contrast, data-driven approaches such as few-shot learning involve training the model on annotated datasets without the provision of explicit knowledge. 
+
+% In addition, by looking at the performance of the model for labelling functional roles, it outperformed the previous experiments for the C and SE roles by achieving 37\% and 50\% precision, respectively. Although the instructed model did not achieve the highest precision in other functional roles, it demonstrates a performance closely aligns with the best experiment. This is evident from the precision scores of 67\%, 38\%, and 85\% for M, S, and TE roles, respectively. Overall, the model instructed with my proposed relational model achieved a performance equal to or greater than 50\% for 9 out of the 13 roles. In contrast, using zero-shot or few-shot learning, this was observed for only 1 and 2 roles, respectively. 
+
+\begin{figure}[!ht]
+\centering
+{\includegraphics[width=1\linewidth]{RMIT-PhDThesis-LaTeX-template-master/Figures/Chapter 3/labelling-instruct.pdf}}\
+
+\caption{Measured evaluation metrics for different roles when the GPT3.5 model is instructed with the relational model.}
+\label{labelling-instruct}
+\end{figure}
+
+
+
+\begin{figure}[!ht]
+\centering
+{\includegraphics[width=1\linewidth]{RMIT-PhDThesis-LaTeX-template-master/Figures/Chapter 3/f1-cases.pdf}}\
+
+\caption{Derived F1-score values for different roles in zero-shot learning, few-shot learning, and instruction-based experiments.}
+\label{f1-three cases}
+\end{figure}
+
+
+\subsection{Quality of generated questions}\label{quality_llm}
+
+In the final evaluation in this chapter, the performance of the generative model was evaluated for extending the corpus of geographic questions using the conceptual relational model. As outlined in Section~\ref{generation task}, the GPT-3.5 model was guided to first generate new questions for each pattern using the conceptual relational model (Table~\ref{conceptual model}) and then to identify the roles in each generated question following that instruction.
+
+Figure~\ref{instructedGPT} shows the GPT-3.5 model performance for generating questions. The results indicate the model was indeed able to generate different questions that closely adhered to the underlying patterns. Looking at GPT-3.5's performance when instructed with the conceptual relational model, the roles identified in the generated questions are frequently correct. This is evident from the consistently high scores across all metrics for all roles (with an average F1-score of 75\% for all roles). This result provides strong evidence of the model's ability to generate diverse questions closely aligned with the underlying patterns. In fact, the model attempts to understand the placement of various roles within each pattern in the sample example provided in the prompt. Then it generates new questions by adhering to the pattern and the positions of these roles. In other words, it is quite unlikely that the model generates questions that incorporate the same roles but in different positions within the text compared to the given example. 
+
+While this feature ensures consistency with the original role structure, it is also a limitation: in real-world usage, people often vary the placement of spatial and temporal expressions. Thus, the generated corpus will almost certainly under-represent the full range of variation found in how questions are naturally phrased, potentially leading to models that are less robust to such reordering. 
+
+\begin{figure}[!ht]
+\centering
+{\includegraphics[width=1\linewidth]{RMIT-PhDThesis-LaTeX-template-master/Figures/Chapter 3/instructedGPT.pdf}}\
+
+\caption{Performance of the GPT-3.5 model for extracting different roles when it is instructed with my proposed relational model.}
+\label{instructedGPT}
+\end{figure}
+
+Figure~\ref{instructedGPT-withoutdesc} contrasts the results of the GPT-3.5 model performance for generating new questions when the prompt includes a few examples and no explanation of FRs and spatial and temporal calculi. The overall performance of the model in this experiment is also satisfactory for generating new questions. This demonstrates the importance of including a sample question with instructions on the patterns and their roles. Some of the evaluation metrics in this experiment are comparable with the previous case where the description of the roles was included in the prompt, for instance, in the M, S, P\_M, TR\_C, SR\_S, TR\_S, and SR\_SE roles. However, there is a noticeable decline in performance for the C, SE, and SR\_C roles. This supports the view that although including a short paragraph describing the different roles to the model is not as crucial as providing examples with instructions, it can still contribute to the model's performance in the identification of certain roles.
+
+\begin{figure}[!ht]
+\centering
+{\includegraphics[width=1\linewidth]{RMIT-PhDThesis-LaTeX-template-master/Figures/Chapter 3/instruct-withoutdesc.pdf}}\
+
+\caption{Performance of the GPT-3.5 model for extracting different roles when the model is instructed with my proposed relational model but without explanation of the roles.}
+\label{instructedGPT-withoutdesc}
+\end{figure}
+
+In the final two tests, the first excluded sample examples, and the second excluded both the description of roles as well as the sample examples. The model completely fails in these test, generating entirely irrelevant questions. In fact, instead of comprehending the roles and formulating new questions with entities using those roles, the GPT-3.5 model attempted to create questions that explicitly mentioned the roles specified in the given prompt. For instance, Listing \ref{list-instruct-label3} represents the response of the GPT-3.5 model when the given prompt included a description of the relations and functional roles as well as asking the model to generate two questions having spatial and temporal extent roles. 
+
+\bigskip
+\begin{lstlisting}[
+    caption={A sample prompt for instruction-based learning for generating new questions when no instructed examples are fed into the model.},
+    label=list-instruct-label3,
+    captionpos=t,
+    abovecaptionskip=-\medskipamount,
+    breaklines=true
+]
+## Given prompt
+If the functional roles as lists of "Measure (M)", "Condition (C)", "Support (S)", "Spatial extent (SE)", and "Temporal extent (TE)". Also, when Spatial relation (SR) is present in the functional roles of C, S, SE, they are denoted as SRc, SRs, SRse, respectively. Also, when Temporal Relation (TR) is present in the functional roles of C, S, TE, they are denoted as TRc, TRs, TRte, respectively. Also, Time (T) or Place (P) can only be present in the functional role of M, where they are denoted as Tm and Pm, respectively. Also, SR is based on `Cardinal Direction Calculus (CDC)' or `Region Connection Calculus (RCC)'. Also, TR is based on `Allen Interval Algebra (AIA)'.
+
+Generate 2 different `What' questions that have `SE',`TE' roles in them and label these roles in each question:
+
+## GPT3.5 response
+1. What is the spatial extent (SE) of the given phenomenon, considering the spatial relation (SRse) based on `Cardinal Direction Calculus (CDC)'?
+
+2. What is the temporal extent (TE) of the observed event, and how does the temporal relation (TRte) influence its duration based on `Allen Interval Algebra (AIA)'?
+
+\end{lstlisting}
+
+
+These results support the contention that instructing the GPT3.5 model using the conceptual relational model can lead to improvement in identifying different roles compared to the results of few-shot learning and zero-shot learning. Without this instruction, the generative AI model tested had limited understanding of functional roles and spatial and temporal calculi, which hinders their ability to comprehend these roles. In turn, this negatively affects the model capability to generate questions with varying combinations of these roles.
+
+
+% In this section, I have evaluated the quality of generating geographic questions w
+% \textbf{This section provides the results of:
+% 1) generating questions when the model is insteructed with text and examples
+% 2) generating questions when the model is instructed without text but with examples
+% 3) generating questions when the model is instructed with text but without examples
+% }
+
+
+% \begin{figure}[!ht]
+% \centering
+% {\includegraphics[width=1\linewidth]{images/uninstructured.pdf}}\
+
+% \caption{Performance of the GPT3.5's model for extracting different roles when the model is not instructed with my proposed relational model.}
+% \label{NotinstructedGPT}
+% \end{figure}
+
+
+
+
+\section{Discussion}\label{discussion}
+
+
+The analysis of several GeoQA corpora, namely Geo201, GeoAnQu, GeoCLEFF, GeoQuery, and Giki, revealed distinct biases in their question sets, despite the large proportions of questions containing spatial or temporal relations (77\%, 100\%, 90\%, 47\%, and 67\%, respectively) in each corpus. These biases manifest in several ways: 
+\begin{itemize}
+    \item There is a predominant focus on a specific form of topological relations, namely ``in''', while other forms of topological relations or different spatial and temporal relation calculi are overlooked. 
+    \item A very limited number of patterns from the conceptual relational model were present in these corpora, and relations mostly occurred in either the spatial extent or temporal extent. 
+    \item The frequency of spatial relations is significantly higher than that of temporal relations. 
+\end{itemize}
+
+These results underline the need for a method to de-bias and enrich question corpora with respect to spatial and temporal relations. These biases have prompted studies like \textcite{kazemi_beydokhti_qualitative_2022} to introduce a question corpus aimed at addressing the limitations in corpus size and the exploration of relations beyond topological ones, such as CDC, although the corpus remains synthetic and lacks emphasis on temporal relations.  %This led to proposing a conceptual relational model to include not only more diverse relational queries into the existing corpora but also to help us generate new questions and expand the dataset’s size using LLMs (R1). 
+
+Furthermore, these results show that state-of-the-art generative AI models exhibit poor performance in both interpreting questions that involve spatial and temporal relations and in generating questions that include these kinds of relations. The limitation of interpreting questions using LLMs is also highlighted in some studies concerned with interpreting questions in terms of extracting named entities \parencite{wang_gpt-ner_2023, zhang_linkner_2024}. These studies  have shown that despite advancements in LLMs across various NLP tasks, LLMs' performance in this domain is still below supervised baselines. Yet, when the model is instructed with an explicit relational model, there is a significant improvement in its performance in generating new questions with similar patterns. Also, investigating different variants of the prompt given to the LLM model has revealed the importance of example questions for obtaining good performance in generating questions. Although explaining the spatial and temporal calculi and functional roles is not as important as question examples, it can still play a role in enhancing the model’s ability to identify specific roles. A complete breakdown is observed in the model’s performance when both components were excluded from the provided prompt.
+
+Finally, the results underscore the importance of knowledge-based approaches, where the LLM is provided with explicit knowledge, as opposed to data-driven approaches that rely solely on training datasets that label questions with spatial and temporal relations. A notable improvement is observed in performance in the labelling task in most of the roles when instructing the GPT-3.5 model with the conceptual relational model, compared to merely fine-tuning it with a set of annotated datasets. The results indicate similar performance between the few-shot and the zero-shot models in terms of their inability to extract spatial and temporal relations within functional roles. Both models were only able to identify functional roles with varying lower degrees of prediction accuracy for each role. The instructed model not only outperformed the zero-shot and few-shot models in identifying both functional roles and spatial and temporal relations, but also demonstrated better performance in predicting true labels in almost all roles compared to few-shot and zero-shot learning. This result is corroborated by the study of \textcite{lester_power_2021} where the authors explored the effectiveness of prompt tuning. % study compared this approach with GPT-3's few-shot and zero-shot learning capabilities, showing that prompt tuning offers significant improvements, especially for large-scale models, and its advantages in terms of adaptability on targeted tasks.
+
+
+% This is also supported in the study of () where the authors explored \textit{prompt tuning}, a simple mechanism for learning "soft prompts" to adapt a pre-trained language model for specific tasks. The authors compared prompt tuning approach to GPT-3's few-shot and zero-shot learning, demonstrating that prompt tuning showing significant improvements over the other two.
+
+
+% This is evident from the previous experiemnts in this domain and can be explored in this domain, and be linked with the different cases in this area, so it is different with how to link this. And, so this is a kind of work can be used in this context; and yet it is too late for explaining the fact, I are using 
+
+\section{Summary}\label{summary3_1}
+
+
+This chapter examined how large language models (LLMs) can help \emph{construct} qualitative spatial representations for spatial questions that involve spatial and temporal relations. To that end, a conceptual relational model was proposed that situates spatial (CDC/RCC) and temporal (AIA) relations within functional roles (Measure, Condition, Support, Spatial Extent, Temporal Extent) and used it to guide LLMs both to label existing questions and to generate new, relation-rich questions.
+
+Explicitly instructing LLMs using the conceptual relational model proved effective for constructing spatial–temporal relation representations and expanding GeoQA corpora. The results emphasise the effectiveness of instructing generative AI models with explicit conceptual models, particularly in geospatial questions involving complex spatial and temporal relationships. This chapter's findings highlight the interoperability and explainability that knowledge-based approaches offer, by relying on explicitly defined rules and logic, making its decision-making process more interpretable. However, at the same time, such an approach may struggle to adapt to new scenarios and may require complex rule definitions for intricate tasks. As for Chapter~\ref{chapter3}, this chapter also did not address \textit{reasoning} over qualitative spatial representations. Chapter~\ref{chapter5} pivots the focus from geoparsing questions to knowledge retrieval based on LLMs, and in particular how LLMs can perform across qualitative spatial reasoning tasks.
+
+% , but data-driven models trade explainability for adaptability: they scale and learn complex patterns, yet are sensitive to data quality, prone to overfitting or mirroring exemplar phrasing, and less transparent. Overall, a hybrid is recommended—use knowledge-driven structure to constrain and explain, and guided LLMs to supply coverage and scale—broadening the range of questions we can represent and the corpora we can build. Crucially, this chapter addressed representation and construction rather than \emph{reasoning} over these qualitative spatial representations. Chapter~4 pivots from representation to reasoning, developing and evaluating mechanisms (including LLMs) for constraint propagation, consistency checking, and inference over spatial–temporal relations across a wider class of qualitative spatial questions.
+
+
+% This chapter began by showing how an ontology can qualitatively represent geospatial questions within GeoQA so they can ultimately be answered. I focused on geo-event questions and used the Simple Event Model (SEM) to encode questions in terms of \textit{Event}, \textit{Place}, \textit{Actor}, and \textit{Time}. Based on these representations, I transformed natural-language geo-event questions into executable GIS workflows and post-processed the resulting solutions. I then examined how large language models (LLMs) can help \emph{construct} qualitative spatial representations for spatial questions involving spatial and temporal relations. To do so, I proposed a conceptual model that situates spatial (CDC/RCC) and temporal (AIA) relations within functional roles and used it to guide LLMs both to label existing questions and to generate new, relation-rich questions.
+
+% Formal ontologies yield interoperable, explainable representations and support reproducible workflow composition; however, creating and maintaining annotations over questions, tools, and data is labour-intensive and time consuming process. Conversely, explicitly instructing LLMs with the conceptual model proved effective for constructing spatial–temporal relation representations and expanding GeoQA corpora. 
+
+
+
+% On the other hand, data-driven AI excels in adaptability, learning patterns from large datasets, and handling complex relationships within data. Its scalability is notable, but it often lacks explainability due to complex models and is highly dependent on the quality of the data.
+
+
+
+
+% Despite demonstrating effectiveness, the CCD ontology—used in this chapter to annotate data and tools—is still incomplete to semantically encode different types of qualitative spatial representation queries such as geo-event or network type questions \paren{scheider_ontology_2020}. In addition, large-scale annotation of tools and their inputs/outputs with an ontology is a manual process, time-consuming, and require expert feedback. Last but not least, APE’s workflow composition heavily depends on how precisely each tool’s domain properties are annotated, raising challenges in runtime deployment, data quality assessment, and the integration of constraints.
+ 
+% One of the promising direction involves refining and optimizing hybrid models that seamlessly integrate both paradigms to harness their complementary strengths in different applications. 
+
+
+
+% Despite this promise, I encountered several important limitations that shape the direction of the remainder of the thesis. First, there is a lack of readily available geo-event question corpora, making systematic evaluation of my method difficult. 
+
+% Second, the Core Concept Data (CCD) ontology—used in this chapter to annotate data and tools—is still incomplete for semantic encoding event and network questions and requires further developments. Third, large-scale annotation of tools and their inputs/outputs with the CCD ontology is a manual process, time-consmuning, and require expert feedback. Fourth, APE’s workflow composition heavily depends on how precisely each tool’s domain properties are annotated, raising challenges in runtime deployment, data quality assessment, and the integration of constraints. Finally, geo-event questions, though valuable for specific applications, they represent a very specific subset of geospatial queries and so more general geospatial queries were more of the interest in this thesis. Therefore, the direction of this thesis has shifted towards investigating a broader types of queries, qualitative spatial questions with spatial relations. The next chapter introduces available corpora for this types of queries and examines how they capture different forms of spatial relations.
+
+% This chapter introduced a conceptual relational model that combines explicit spatial and temporal calculi with functional roles. The model was used to instruct a generative AI model, addressing two key challenges in the GeoQA domain: enhancing the interpretation of spatial and temporal relations in questions and generating a more representative and extensive corpus of such questions. The chapter emphasized the effectiveness of explicitly instructing generative AI models with conceptual models, particularly in tasks involving complex spatial and temporal relationships. Furthermore, this study's findings highlight the knowledge-driven AI offers interoperability and explainability by relying on explicitly defined rules and logic, making the decision-making process more understandable. It can also perform well with limited data, making them suitable for domains where acquiring large datasets is challenging or costly. However, it may struggle with adaptability to new scenarios and require complex rule definitions for intricate tasks. On the other hand, data-driven AI excels in adaptability, learning patterns from large datasets, and handling complex relationships within data. Its scalability is notable, but it often lacks explainability due to complex models and are highly dependent on the quality of the data. Moreover, in these approaches, there is a potential risk of overfitting to specific patterns in the training data. 
+% One of the promising direction involves refining and optimizing hybrid models that seamlessly integrate both paradigms to harness their complementary strengths in different applications. 
+

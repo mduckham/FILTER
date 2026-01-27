@@ -38283,3 +38283,6 @@ Map Dashboard/Map Demonstrator/.env.local
 /Map_Dashboard/Map_Demonstrator/Data for indicators
 /Map Dashboard/Map Demonstrator_backend
 /Map_Dashboard/Map Demonstrator_backend
+/Map Dashboard/Map Demonstrator_paper/node_modules
+/Map Dashboard/Map Demonstrator_paper/build
+/Map Dashboard/Map Demonstrator_paper/node_modules
