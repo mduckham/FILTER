@@ -67,4 +67,4 @@ https://main.d1oi671molb9yb.amplifyapp.com/ -->
 - Mohammad Kazemi Beydokhti
 - Matt Duckham
 
-![alt text](<Screenshot 2025-12-11 at 11.51.37 am.png>)
+![alt text](image-1.png)
