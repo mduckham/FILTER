@@ -59,9 +59,9 @@ The React/MapLibre application is built and hosted via Amplify.
 ### 3. Deployment Notes
 * **Folder Structure:** Ensure folder names do not contain spaces (e.g., use `Map_Dashboard` instead of `Map Dashboard`) to prevent build script failures in the Linux environment.
 * **Production Server:** The backend uses `gunicorn` for production stability, replacing the standard Flask development server used locally.
-
+<!-- 
 ### 4. Demosntrator External URL
-https://main.d1oi671molb9yb.amplifyapp.com/
+https://main.d1oi671molb9yb.amplifyapp.com/ -->
 
 ### Contributors
 - Mohammad Kazemi Beydokhti
